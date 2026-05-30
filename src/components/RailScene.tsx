@@ -3,9 +3,22 @@ import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber"
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import {
+  CURVE_ANGLE,
+  mmToWorld,
   pointOnRoute,
   poseForTrain,
+  RIDGE_CENTER_OFFSET,
+  RIDGE_GAP,
+  RIDGE_HEIGHT,
+  RIDGE_WIDTH,
   railRoutes,
+  routeLength,
+  TRACK_BASE_HEIGHT,
+  TRACK_WIDTH,
+  LEVEL_HEIGHT,
+  VEHICLE_HEIGHT,
+  VEHICLE_LENGTH,
+  VEHICLE_WIDTH,
 } from "../railMath";
 import { useEditorStore } from "../store";
 import type {
@@ -81,8 +94,8 @@ function Beam({
   b,
   color,
   opacity,
-  width = 0.22,
-  height = 0.15,
+  width = RIDGE_WIDTH,
+  height = RIDGE_HEIGHT,
 }: {
   a: Vec3;
   b: Vec3;
@@ -101,7 +114,11 @@ function Beam({
   return (
     <mesh
       castShadow
-      position={[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 0.13, (a[2] + b[2]) / 2]}
+      position={[
+        (a[0] + b[0]) / 2,
+        (a[1] + b[1]) / 2 + TRACK_BASE_HEIGHT + RIDGE_HEIGHT / 2,
+        (a[2] + b[2]) / 2,
+      ]}
       rotation={[0, yaw, pitch]}
     >
       <boxGeometry args={[length + 0.04, height, width]} />
@@ -124,10 +141,10 @@ function Sleeper({
   return (
     <mesh
       castShadow
-      position={[point[0], point[1] + 0.08, point[2]]}
+      position={[point[0], point[1] + TRACK_BASE_HEIGHT / 2, point[2]]}
       rotation={[0, -Math.atan2(tangent[2], tangent[0]), 0]}
     >
-      <boxGeometry args={[0.32, 0.12, 1.94]} />
+      <boxGeometry args={[mmToWorld(12), TRACK_BASE_HEIGHT, TRACK_WIDTH]} />
       <meshStandardMaterial color={color} opacity={opacity} transparent={opacity < 1} />
     </mesh>
   );
@@ -145,7 +162,12 @@ function RailStrip({
   opacity: number;
 }) {
   const points = useMemo(
-    () => Array.from({ length: 15 }, (_, index) => pointOnRoute(piece, route, index / 14)),
+    () => {
+      const segments = Math.max(5, Math.ceil(routeLength(piece, route) / mmToWorld(16)));
+      return Array.from({ length: segments + 1 }, (_, index) =>
+        pointOnRoute(piece, route, index / segments),
+      );
+    },
     [piece, route],
   );
 
@@ -155,7 +177,7 @@ function RailStrip({
         const next = points[index + 1];
         const delta = new THREE.Vector3(next[0] - point[0], 0, next[2] - point[2]).normalize();
         const normal = new THREE.Vector3(-delta.z, 0, delta.x);
-        const offset = normal.multiplyScalar(0.68);
+        const offset = normal.multiplyScalar(RIDGE_CENTER_OFFSET);
         const aLeft: Vec3 = [point[0] + offset.x, point[1], point[2] + offset.z];
         const bLeft: Vec3 = [next[0] + offset.x, next[1], next[2] + offset.z];
         const aRight: Vec3 = [point[0] - offset.x, point[1], point[2] - offset.z];
@@ -180,19 +202,19 @@ function RailStrip({
 }
 
 function SupportModel({ piece, color, opacity }: { piece: RailPiece; color: string; opacity: number }) {
-  const height = piece.supportHeight ?? 2.4;
+  const height = piece.supportHeight ?? LEVEL_HEIGHT;
   return (
     <group position={piece.position}>
       <mesh castShadow position={[0, height / 2, 0]}>
-        <boxGeometry args={[0.72, height, 0.72]} />
+        <boxGeometry args={[mmToWorld(30), height, mmToWorld(30)]} />
         <meshStandardMaterial color={color} opacity={opacity} transparent={opacity < 1} />
       </mesh>
       <mesh castShadow position={[0, height + 0.04, 0]}>
-        <boxGeometry args={[1.9, 0.18, 1.25]} />
+        <boxGeometry args={[mmToWorld(56), mmToWorld(6), mmToWorld(40)]} />
         <meshStandardMaterial color={color} opacity={opacity} transparent={opacity < 1} />
       </mesh>
       <mesh castShadow position={[0, 0.1, 0]}>
-        <boxGeometry args={[1.2, 0.2, 1.2]} />
+        <boxGeometry args={[mmToWorld(48), mmToWorld(6), mmToWorld(48)]} />
         <meshStandardMaterial color={color} opacity={opacity} transparent={opacity < 1} />
       </mesh>
     </group>
@@ -210,6 +232,20 @@ function RailModel({
 }) {
   const color = ghost ? "#73cdfb" : selected ? "#ffd14c" : "#1677e8";
   const opacity = ghost ? 0.58 : 1;
+  const switchable =
+    piece.type === "switch" || piece.type === "turnoutLeft" || piece.type === "turnoutRight";
+  const leverRotation =
+    piece.type === "turnoutLeft"
+      ? piece.activeBranch === 1
+        ? 0
+        : CURVE_ANGLE / 2
+      : piece.type === "turnoutRight"
+        ? piece.activeBranch === 1
+          ? 0
+          : -CURVE_ANGLE / 2
+        : piece.activeBranch === 1
+          ? 0.55
+          : -0.55;
   if (piece.type === "support") {
     return <SupportModel color={ghost ? "#f9d980" : selected ? "#ffd14c" : "#f2b642"} opacity={opacity} piece={piece} />;
   }
@@ -219,13 +255,17 @@ function RailModel({
       {railRoutes(piece).map((route) => (
         <RailStrip color={color} key={route.join("-")} opacity={opacity} piece={piece} route={route} />
       ))}
-      {piece.type === "switch" && (
-        <group position={[piece.position[0] + 0.1, piece.position[1] + 0.34, piece.position[2]]}>
-          <mesh castShadow rotation={[0, piece.activeBranch === 1 ? -0.55 : 0.55, 0]}>
-            <boxGeometry args={[1.15, 0.14, 0.2]} />
-            <meshStandardMaterial color="#f6c445" />
-          </mesh>
-          <mesh castShadow position={[-0.52, 0.08, 0]}>
+      {switchable && (
+        <group position={piece.position} rotation={[0, piece.rotation, 0]}>
+          <group position={[-0.42, 0.34, 0]}>
+            <group rotation={[0, leverRotation, 0]}>
+              <mesh castShadow position={[0.57, 0, 0]}>
+                <boxGeometry args={[1.15, 0.14, 0.2]} />
+                <meshStandardMaterial color="#f6c445" />
+              </mesh>
+            </group>
+          </group>
+          <mesh castShadow position={[-0.42, 0.42, 0]}>
             <cylinderGeometry args={[0.18, 0.18, 0.16, 16]} />
             <meshStandardMaterial color="#e44b4b" />
           </mesh>
@@ -240,6 +280,8 @@ function RailControls({ rail }: { rail: RailPiece }) {
   const duplicate = useEditorStore((state) => state.duplicateSelectedRail);
   const remove = useEditorStore((state) => state.deleteSelected);
   const toggleSwitch = useEditorStore((state) => state.toggleSelectedSwitch);
+  const switchable =
+    rail.type === "switch" || rail.type === "turnoutLeft" || rail.type === "turnoutRight";
 
   return (
     <Html center distanceFactor={15} position={[rail.position[0], rail.position[1] + 2.35, rail.position[2]]}>
@@ -249,7 +291,7 @@ function RailControls({ rail }: { rail: RailPiece }) {
             Rotate
           </button>
         )}
-        {rail.type === "switch" && (
+        {switchable && (
           <button className="switch-button" onClick={toggleSwitch} title="Change switch route" type="button">
             Switch
           </button>
@@ -345,9 +387,10 @@ function sampleTrail(
 }
 
 function Wheel({ x, z }: { x: number; z: number }) {
+  const wheelRadius = mmToWorld(6);
   return (
-    <mesh castShadow position={[x, 0.17, z]} rotation={[Math.PI / 2, 0, 0]}>
-      <cylinderGeometry args={[0.24, 0.24, 0.14, 16]} />
+    <mesh castShadow position={[x, wheelRadius, z]} rotation={[Math.PI / 2, 0, 0]}>
+      <cylinderGeometry args={[wheelRadius, wheelRadius, mmToWorld(4), 16]} />
       <meshStandardMaterial color="#293a4b" />
     </mesh>
   );
@@ -365,41 +408,58 @@ function VehicleModel({
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   const yaw = -Math.atan2(tangent[2], tangent[0]);
+  const pitch = Math.atan2(tangent[1], Math.hypot(tangent[0], tangent[2]));
+  const windowFace = -VEHICLE_WIDTH / 2 - mmToWorld(0.5);
+  const wheelZ = RIDGE_GAP / 2 - mmToWorld(3);
+  const wheelX = VEHICLE_LENGTH * 0.3;
+  const chassisHeight = mmToWorld(6);
+  const chassisY = mmToWorld(9);
+  const bodyBottom = mmToWorld(12);
+  const bodyHeight = VEHICLE_HEIGHT - bodyBottom;
+  const bodyCenterY = bodyBottom + bodyHeight / 2;
   return (
-    <group onClick={onSelect} position={[position[0], position[1] + 0.28, position[2]]} rotation={[0, yaw, 0]}>
-      <mesh castShadow position={[0, 0.28, 0]}>
-        <boxGeometry args={[1.72, 0.28, 1]} />
+    <group
+      onClick={onSelect}
+      position={[
+        position[0],
+        position[1] + TRACK_BASE_HEIGHT + RIDGE_HEIGHT,
+        position[2],
+      ]}
+      rotation={[0, yaw, pitch]}
+    >
+      <mesh castShadow position={[0, chassisY, 0]}>
+        <boxGeometry args={[VEHICLE_LENGTH, chassisHeight, VEHICLE_WIDTH]} />
         <meshStandardMaterial color="#283e58" />
       </mesh>
       {part.kind === "engine" && (
         <>
-          <mesh castShadow position={[-0.28, 0.75, 0]}>
-            <boxGeometry args={[1.04, 0.78, 0.9]} />
+          <mesh castShadow position={[-VEHICLE_LENGTH * 0.18, bodyCenterY, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.58, bodyHeight, VEHICLE_WIDTH * 0.92]} />
             <meshStandardMaterial color={part.color} />
           </mesh>
-          <mesh castShadow position={[0.62, 0.6, 0]}>
-            <boxGeometry args={[0.65, 0.48, 0.82]} />
+          <mesh castShadow position={[VEHICLE_LENGTH * 0.33, bodyBottom + bodyHeight * 0.3, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.36, bodyHeight * 0.6, VEHICLE_WIDTH * 0.86]} />
             <meshStandardMaterial color={part.color} />
           </mesh>
-          <mesh castShadow position={[0.62, 0.98, 0]}>
-            <cylinderGeometry args={[0.15, 0.2, 0.46, 16]} />
+          <mesh castShadow position={[VEHICLE_LENGTH * 0.33, bodyBottom + bodyHeight * 0.69, 0]}>
+            <cylinderGeometry args={[mmToWorld(4), mmToWorld(5), bodyHeight * 0.42, 16]} />
             <meshStandardMaterial color="#f1c34a" />
           </mesh>
-          <mesh position={[-0.72, 0.82, -0.46]}>
-            <boxGeometry args={[0.35, 0.28, 0.03]} />
+          <mesh position={[-VEHICLE_LENGTH * 0.37, bodyBottom + bodyHeight * 0.58, windowFace]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.18, bodyHeight * 0.34, mmToWorld(1)]} />
             <meshStandardMaterial color="#bce9ff" />
           </mesh>
         </>
       )}
       {part.kind === "passenger" && (
         <>
-          <mesh castShadow position={[0, 0.7, 0]}>
-            <boxGeometry args={[1.56, 0.72, 0.9]} />
+          <mesh castShadow position={[0, bodyCenterY, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight, VEHICLE_WIDTH * 0.92]} />
             <meshStandardMaterial color={part.color} />
           </mesh>
-          {[-0.48, 0, 0.48].map((x) => (
-            <mesh key={x} position={[x, 0.76, -0.46]}>
-              <boxGeometry args={[0.27, 0.3, 0.025]} />
+          {[-0.28, 0, 0.28].map((x) => (
+            <mesh key={x} position={[VEHICLE_LENGTH * x, bodyCenterY, windowFace]}>
+              <boxGeometry args={[VEHICLE_LENGTH * 0.16, bodyHeight * 0.38, mmToWorld(1)]} />
               <meshStandardMaterial color="#d8f4ff" />
             </mesh>
           ))}
@@ -407,32 +467,32 @@ function VehicleModel({
       )}
       {part.kind === "cargo" && (
         <>
-          <mesh castShadow position={[0, 0.56, 0]}>
-            <boxGeometry args={[1.52, 0.42, 0.94]} />
+          <mesh castShadow position={[0, bodyBottom + bodyHeight * 0.28, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight * 0.56, VEHICLE_WIDTH]} />
             <meshStandardMaterial color={part.color} />
           </mesh>
-          <mesh position={[0, 0.78, 0]}>
-            <boxGeometry args={[1.32, 0.24, 0.72]} />
+          <mesh position={[0, bodyBottom + bodyHeight * 0.62, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.76, bodyHeight * 0.24, VEHICLE_WIDTH * 0.78]} />
             <meshStandardMaterial color="#ba6d35" />
           </mesh>
         </>
       )}
       {part.kind === "rear" && (
         <>
-          <mesh castShadow position={[0, 0.68, 0]}>
-            <boxGeometry args={[1.52, 0.68, 0.9]} />
+          <mesh castShadow position={[0, bodyCenterY, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight, VEHICLE_WIDTH * 0.92]} />
             <meshStandardMaterial color={part.color} />
           </mesh>
-          <mesh position={[-0.77, 0.7, 0]}>
-            <sphereGeometry args={[0.13, 16, 16]} />
+          <mesh position={[-VEHICLE_LENGTH * 0.46, bodyCenterY, 0]}>
+            <sphereGeometry args={[mmToWorld(4), 16, 16]} />
             <meshStandardMaterial color="#ffe05c" emissive="#f29632" emissiveIntensity={0.7} />
           </mesh>
         </>
       )}
-      <Wheel x={-0.52} z={-0.53} />
-      <Wheel x={0.52} z={-0.53} />
-      <Wheel x={-0.52} z={0.53} />
-      <Wheel x={0.52} z={0.53} />
+      <Wheel x={-wheelX} z={-wheelZ} />
+      <Wheel x={wheelX} z={-wheelZ} />
+      <Wheel x={-wheelX} z={wheelZ} />
+      <Wheel x={wheelX} z={wheelZ} />
     </group>
   );
 }
@@ -472,7 +532,9 @@ function TrainActor({ train }: { train: TrainSet }) {
     <group>
       {train.cars.map((part, index) => {
         const vehiclePose =
-          index === 0 ? pose : sampleTrail(train.trail, index * 1.72, pose.position, pose.tangent);
+          index === 0
+            ? pose
+            : sampleTrail(train.trail, index * VEHICLE_LENGTH, pose.position, pose.tangent);
         return (
           <VehicleModel
             key={part.id}

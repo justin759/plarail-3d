@@ -3,8 +3,12 @@ import type { RailType } from "../types";
 
 const railItems: { type: RailType; label: string; detail: string; glyph: string }[] = [
   { type: "straight", label: "Straight", detail: "Build forward", glyph: "━" },
+  { type: "halfStraight", label: "Half Straight", detail: "Fill a shorter gap", glyph: "─" },
+  { type: "quarterStraight", label: "1/4 Straight", detail: "Fine-tune a gap", glyph: "╴" },
   { type: "curve", label: "Curve", detail: "Turn a corner", glyph: "╰" },
   { type: "switch", label: "Y Switch", detail: "Choose a route", glyph: "Y" },
+  { type: "turnoutLeft", label: "Turnout Rail L", detail: "Straight or curve left", glyph: "↰" },
+  { type: "turnoutRight", label: "Turnout Rail R", detail: "Straight or curve right", glyph: "↱" },
   { type: "crossing", label: "Crossing", detail: "Go straight across", glyph: "+" },
   { type: "slope", label: "Slope", detail: "Climb up or down", glyph: "╱" },
   { type: "support", label: "Support", detail: "Place under high rails", glyph: "▥" },

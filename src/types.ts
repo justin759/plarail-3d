@@ -2,8 +2,12 @@ export type Vec3 = [number, number, number];
 
 export type RailType =
   | "straight"
+  | "halfStraight"
+  | "quarterStraight"
   | "curve"
   | "switch"
+  | "turnoutLeft"
+  | "turnoutRight"
   | "crossing"
   | "slope"
   | "support";

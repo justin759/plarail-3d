@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  CURVE_ANGLE,
   closestRailPlacement,
   findConnection,
   placementForRail,
@@ -23,6 +24,8 @@ import type {
 
 const id = () => crypto.randomUUID();
 const clone = <T,>(value: T): T => structuredClone(value);
+const isSwitchableRail = (type: RailType) =>
+  type === "switch" || type === "turnoutLeft" || type === "turnoutRight";
 
 const engineColors: Record<string, string> = {
   blue: "#2785f7",
@@ -201,7 +204,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       withHistory(state, {
         rails: state.rails.map((rail) =>
           rail.id === state.selection?.id
-            ? { ...rail, rotation: rail.rotation + Math.PI / 2 }
+            ? { ...rail, rotation: rail.rotation + CURVE_ANGLE }
             : rail,
         ),
         trains: state.trains,
@@ -255,7 +258,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set(
       withHistory(state, {
         rails: state.rails.map((rail) =>
-          rail.id === state.selection?.id && rail.type === "switch"
+          rail.id === state.selection?.id && isSwitchableRail(rail.type)
             ? { ...rail, activeBranch: rail.activeBranch === 1 ? 2 : 1 }
             : rail,
         ),
