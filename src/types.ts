@@ -14,7 +14,7 @@ export type RailType =
 
 export type VehicleKind = "engine" | "passenger" | "cargo" | "rear";
 
-export type EngineColor = "blue" | "red" | "yellow";
+export type EngineColor = "gray" | "red" | "yellow";
 
 export interface VehiclePart {
   id: string;

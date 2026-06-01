@@ -3,13 +3,13 @@ import type { VehicleKind } from "../types";
 import { dragMime } from "./TrackPalette";
 
 const carCatalog: { kind: VehicleKind; label: string; detail: string; color: string }[] = [
-  { kind: "passenger", label: "Passenger", detail: "Blue coach", color: "#4b9df8" },
+  { kind: "passenger", label: "Passenger", detail: "Gray coach", color: "#8b96a1" },
   { kind: "cargo", label: "Cargo", detail: "Orange wagon", color: "#f59f38" },
   { kind: "rear", label: "Rear Coach", detail: "Red tail coach", color: "#e95658" },
 ];
 
 const engineCatalog = [
-  { variant: "blue", color: "#2785f7" },
+  { variant: "gray", color: "#7d8792" },
   { variant: "red", color: "#ef5350" },
   { variant: "yellow", color: "#ffbf34" },
 ];
@@ -25,6 +25,8 @@ export function TrainBuilder() {
   const removeBuilderPart = useEditorStore((state) => state.removeBuilderPart);
   const moveBuilderPart = useEditorStore((state) => state.moveBuilderPart);
   const clearBuilder = useEditorStore((state) => state.clearBuilder);
+  const beginTrainPlacement = useEditorStore((state) => state.beginTrainPlacement);
+  const cancelPlacement = useEditorStore((state) => state.cancelPlacement);
   const hasEngine = builder[0]?.kind === "engine";
 
   return (
@@ -147,9 +149,11 @@ export function TrainBuilder() {
         draggable={hasEngine}
         onDragStart={(event) => {
           if (!hasEngine) return;
+          beginTrainPlacement();
           event.dataTransfer.effectAllowed = "copy";
           event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "train" }));
         }}
+        onDragEnd={cancelPlacement}
       >
         <div>
           <strong>{hasEngine ? "Your train is ready" : "Start with an engine"}</strong>

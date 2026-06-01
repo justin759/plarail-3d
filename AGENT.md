@@ -69,6 +69,11 @@ The canonical conversion is `54 mm` per world unit:
 - Slope: `432 mm` horizontal S-shaped run rising `50 mm`.
 - Train segment: `100 mm L x 38 mm W x 40 mm H`.
 
+Engine variants may use different procedural silhouettes, but every detail must
+remain inside the shared train-segment envelope. The current catalog uses a gray
+conventional engine, red bullet train, yellow steam engine, and gray passenger
+coach.
+
 The crossing and Y-switch dimensions are explicitly documented assumptions in
 `SPEC.md`. Turnouts combine the exact standard-straight and standard-curve
 routes. Update assumptions when better measurements are available.

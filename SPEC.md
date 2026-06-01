@@ -86,10 +86,11 @@ Children using a mouse on a desktop or laptop browser.
 
 - Use a single free-build camera.
 - LMB drag on open space pans around the map.
+- RMB drag left or right rotates around the current ground target.
+- RMB drag up or down adjusts camera height while keeping the ground target in view.
 - The scroll wheel zooms in and out.
 - Top-bar left and right buttons rotate the view around the current target.
 - Camera distance is constrained to avoid losing the play area.
-- Free mouse orbit is intentionally disabled to keep navigation predictable.
 
 ## 6. Track Construction
 
@@ -120,6 +121,8 @@ The left-side Track Box contains these pieces:
   45-degree orientation.
 - Non-snapped pieces are placed on integer grid coordinates.
 - A translucent preview follows the pointer while a rail tool is active.
+- While a rail tool is active, `R` rotates its preview in 15-degree steps.
+- `Esc` or RMB exits rail placement mode.
 
 ### Physical scale
 
@@ -220,8 +223,8 @@ The right-side Train Builder contains:
 
 | Part | Variants | Notes |
 | --- | --- | --- |
-| Powered engine | Blue, red, yellow | Required first vehicle |
-| Passenger coach | Blue | Standard enclosed coach |
+| Powered engine | Gray conventional, red bullet train, yellow steam engine | Required first vehicle |
+| Passenger coach | Gray | Standard enclosed coach |
 | Cargo wagon | Orange | Open-top visual variety |
 | Rear coach | Red | Tail-light detail |
 
@@ -235,8 +238,9 @@ Every train segment uses the same outer envelope:
 | Width | `38 mm` |
 | Height | `40 mm` |
 
-Engine, passenger, cargo, and rear-coach details remain inside this envelope.
-Wheelsets are positioned to run inside the track's `20 mm` raised-ridge gap.
+Engine silhouettes, passenger, cargo, and rear-coach details remain inside this
+envelope. Wheelsets are positioned to run inside the track's `20 mm`
+raised-ridge gap.
 
 ### Builder rules
 
@@ -247,6 +251,7 @@ Wheelsets are positioned to run inside the track's `20 mm` raised-ridge gap.
 - The builder may be cleared without changing already placed trains.
 - Dragging the finished train onto a nearby rail creates a placed train and
   clears the builder.
+- `Esc` or RMB exits train placement mode without placing the train.
 - A newly placed train starts stopped and selected.
 
 ## 9. Train Simulation

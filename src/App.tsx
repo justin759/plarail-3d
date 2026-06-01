@@ -64,6 +64,7 @@ function WorldFooter() {
   const railCount = useEditorStore((state) => state.rails.length);
   const trainCount = useEditorStore((state) => state.trains.length);
   const activeTool = useEditorStore((state) => state.activeRailTool);
+  const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
 
   return (
     <div className="world-footer">
@@ -75,8 +76,10 @@ function WorldFooter() {
       </span>
       <span className="footer-help">
         {activeTool
-          ? `Click the grass to place ${activeTool} rails, or drag pieces from the Track Box.`
-          : "Drag to move the map. Scroll to zoom. Click a rail or train for controls."}
+          ? `Click grass to place ${activeTool} rails. R rotates 15°. Esc or right-click exits.`
+          : trainPlacementActive
+            ? "Drop the train onto a rail. Esc or right-click exits."
+            : "Drag to move the map. Right-drag to turn or raise the view. Scroll to zoom."}
       </span>
     </div>
   );
@@ -86,10 +89,37 @@ function App() {
   const projector = useRef<DropProjector | null>(null);
   const placeRail = useEditorStore((state) => state.placeRail);
   const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
+  const activeRailTool = useEditorStore((state) => state.activeRailTool);
+  const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
+  const cancelPlacement = useEditorStore((state) => state.cancelPlacement);
+  const rotatePlacementRail = useEditorStore((state) => state.rotatePlacementRail);
+  const placementActive = Boolean(activeRailTool || trainPlacementActive);
 
   const registerProjector = useCallback((next: DropProjector | null) => {
     projector.current = next;
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && placementActive) {
+        event.preventDefault();
+        cancelPlacement();
+        return;
+      }
+      if (
+        event.code === "KeyR" &&
+        activeRailTool &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        rotatePlacementRail();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeRailTool, cancelPlacement, placementActive, rotatePlacementRail]);
 
   return (
     <main className="app-shell">
@@ -98,6 +128,10 @@ function App() {
         <TrackPalette />
         <section
           className="world-stage"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            if (placementActive) cancelPlacement();
+          }}
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = "copy";
@@ -109,10 +143,21 @@ function App() {
             try {
               const payload = JSON.parse(event.dataTransfer.getData(dragMime));
               if (payload.kind === "rail") placeRail(payload.railType, point);
-              if (payload.kind === "train") addTrainFromBuilder(point);
+              if (
+                payload.kind === "train" &&
+                useEditorStore.getState().trainPlacementActive
+              ) {
+                addTrainFromBuilder(point);
+              }
             } catch {
               // Ignore unrelated drops.
             }
+          }}
+          onPointerDownCapture={(event) => {
+            if (event.button !== 2 || !placementActive) return;
+            event.preventDefault();
+            event.stopPropagation();
+            cancelPlacement();
           }}
         >
           <RailScene registerProjector={registerProjector} />

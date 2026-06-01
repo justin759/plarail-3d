@@ -28,23 +28,24 @@ const isSwitchableRail = (type: RailType) =>
   type === "switch" || type === "turnoutLeft" || type === "turnoutRight";
 
 const engineColors: Record<string, string> = {
-  blue: "#2785f7",
+  gray: "#7d8792",
   red: "#ef5350",
   yellow: "#ffbf34",
 };
 
 function newPart(kind: VehicleKind, variant?: string): VehiclePart {
   if (kind === "engine") {
-    const colorName = variant ?? "blue";
+    const requestedColor = variant === "blue" ? "gray" : variant ?? "gray";
+    const colorName = engineColors[requestedColor] ? requestedColor : "gray";
     return {
       id: id(),
       kind,
-      color: engineColors[colorName] ?? engineColors.blue,
+      color: engineColors[colorName],
       label: `${colorName[0].toUpperCase()}${colorName.slice(1)} engine`,
     };
   }
   if (kind === "passenger") {
-    return { id: id(), kind, color: "#4b9df8", label: "Passenger coach" };
+    return { id: id(), kind, color: "#8b96a1", label: "Passenger coach" };
   }
   if (kind === "cargo") {
     return { id: id(), kind, color: "#f59f38", label: "Cargo wagon" };
@@ -58,7 +59,10 @@ interface EditorStore {
   builder: VehiclePart[];
   selection: Selection;
   activeRailTool: RailType | null;
+  trainPlacementActive: boolean;
+  placementRotation: number;
   preview: PlacementPreview | null;
+  previewRaw: Vec3 | null;
   past: SceneSnapshot[];
   future: SceneSnapshot[];
   dragStart: SceneSnapshot | null;
@@ -68,6 +72,9 @@ interface EditorStore {
   setNotice: (notice: string | null) => void;
   select: (selection: Selection) => void;
   chooseRailTool: (type: RailType | null) => void;
+  beginTrainPlacement: () => void;
+  cancelPlacement: () => void;
+  rotatePlacementRail: () => void;
   updatePreview: (raw: Vec3) => void;
   placeRail: (type: RailType, raw: Vec3) => void;
   beginRailDrag: (railId: string) => void;
@@ -112,7 +119,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   builder: [],
   selection: null,
   activeRailTool: null,
+  trainPlacementActive: false,
+  placementRotation: 0,
   preview: null,
+  previewRaw: null,
   past: [],
   future: [],
   dragStart: null,
@@ -122,17 +132,71 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   setNotice: (notice) => set({ notice }),
   select: (selection) => set({ selection }),
-  chooseRailTool: (type) => set({ activeRailTool: type, preview: null, selection: null }),
+  chooseRailTool: (type) =>
+    set({
+      activeRailTool: type,
+      trainPlacementActive: false,
+      placementRotation: 0,
+      preview: null,
+      previewRaw: null,
+      selection: null,
+    }),
+
+  beginTrainPlacement: () =>
+    set({
+      activeRailTool: null,
+      trainPlacementActive: true,
+      placementRotation: 0,
+      preview: null,
+      previewRaw: null,
+      selection: null,
+    }),
+
+  cancelPlacement: () =>
+    set({
+      activeRailTool: null,
+      trainPlacementActive: false,
+      placementRotation: 0,
+      preview: null,
+      previewRaw: null,
+    }),
+
+  rotatePlacementRail: () => {
+    const state = get();
+    if (!state.activeRailTool) return;
+    const placementRotation = state.placementRotation + Math.PI / 12;
+    set({
+      placementRotation,
+      preview:
+        state.previewRaw === null
+          ? state.preview
+          : placementForRail(
+              state.activeRailTool,
+              state.previewRaw,
+              state.rails,
+              placementRotation,
+            ),
+    });
+  },
 
   updatePreview: (raw) => {
     const state = get();
     if (!state.activeRailTool) return;
-    set({ preview: placementForRail(state.activeRailTool, raw, state.rails) });
+    set({
+      preview: placementForRail(
+        state.activeRailTool,
+        raw,
+        state.rails,
+        state.placementRotation,
+      ),
+      previewRaw: raw,
+    });
   },
 
   placeRail: (type, raw) => {
     const state = get();
-    const placement = placementForRail(type, raw, state.rails);
+    const placementRotation = state.activeRailTool === type ? state.placementRotation : 0;
+    const placement = placementForRail(type, raw, state.rails, placementRotation);
     const rail: RailPiece = {
       id: id(),
       type,
@@ -144,7 +208,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({
       ...withHistory(state, { rails: [...state.rails, rail], trains: state.trains }),
       selection: { kind: "rail", id: rail.id },
-      preview: placementForRail(type, raw, [...state.rails, rail]),
+      preview: placementForRail(type, raw, [...state.rails, rail], placementRotation),
+      previewRaw: raw,
     });
   },
 
@@ -274,6 +339,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       ...withHistory(state, { rails: [], trains: [] }),
       selection: null,
       preview: null,
+      previewRaw: null,
     });
   },
 

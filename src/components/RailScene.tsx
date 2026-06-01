@@ -62,6 +62,9 @@ function Projector({ registerProjector }: RailSceneProps) {
 function CameraRig() {
   const controls = useRef<any>(null);
   const turn = useEditorStore((state) => state.cameraTurn);
+  const placementActive = useEditorStore(
+    (state) => Boolean(state.activeRailTool || state.trainPlacementActive),
+  );
   const previousTurn = useRef(turn);
 
   useEffect(() => {
@@ -78,7 +81,7 @@ function CameraRig() {
 
   return (
     <MapControls
-      enableRotate={false}
+      enableRotate={!placementActive}
       maxDistance={68}
       maxPolarAngle={Math.PI / 2.15}
       minDistance={8}
@@ -417,6 +420,14 @@ function VehicleModel({
   const bodyBottom = mmToWorld(12);
   const bodyHeight = VEHICLE_HEIGHT - bodyBottom;
   const bodyCenterY = bodyBottom + bodyHeight / 2;
+  const engineVariant =
+    part.kind !== "engine"
+      ? null
+      : part.label === "Red engine"
+        ? "bullet"
+        : part.label === "Yellow engine"
+          ? "steam"
+          : "conventional";
   return (
     <group
       onClick={onSelect}
@@ -431,7 +442,7 @@ function VehicleModel({
         <boxGeometry args={[VEHICLE_LENGTH, chassisHeight, VEHICLE_WIDTH]} />
         <meshStandardMaterial color="#283e58" />
       </mesh>
-      {part.kind === "engine" && (
+      {engineVariant === "conventional" && (
         <>
           <mesh castShadow position={[-VEHICLE_LENGTH * 0.18, bodyCenterY, 0]}>
             <boxGeometry args={[VEHICLE_LENGTH * 0.58, bodyHeight, VEHICLE_WIDTH * 0.92]} />
@@ -447,6 +458,74 @@ function VehicleModel({
           </mesh>
           <mesh position={[-VEHICLE_LENGTH * 0.37, bodyBottom + bodyHeight * 0.58, windowFace]}>
             <boxGeometry args={[VEHICLE_LENGTH * 0.18, bodyHeight * 0.34, mmToWorld(1)]} />
+            <meshStandardMaterial color="#bce9ff" />
+          </mesh>
+        </>
+      )}
+      {engineVariant === "bullet" && (
+        <>
+          <mesh castShadow position={[-VEHICLE_LENGTH * 0.14, bodyCenterY, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.72, bodyHeight * 0.86, VEHICLE_WIDTH * 0.76]} />
+            <meshStandardMaterial color={part.color} />
+          </mesh>
+          <mesh
+            castShadow
+            position={[VEHICLE_LENGTH * 0.35, bodyCenterY, 0]}
+            rotation={[0, 0, -Math.PI / 2]}
+          >
+            <coneGeometry args={[bodyHeight * 0.42, VEHICLE_LENGTH * 0.3, 20]} />
+            <meshStandardMaterial color={part.color} />
+          </mesh>
+          <mesh
+            position={[
+              VEHICLE_LENGTH * 0.08,
+              bodyBottom + bodyHeight * 0.58,
+              -VEHICLE_WIDTH * 0.38 - mmToWorld(0.5),
+            ]}
+          >
+            <boxGeometry args={[VEHICLE_LENGTH * 0.2, bodyHeight * 0.28, mmToWorld(1)]} />
+            <meshStandardMaterial color="#bce9ff" />
+          </mesh>
+        </>
+      )}
+      {engineVariant === "steam" && (
+        <>
+          <mesh
+            castShadow
+            position={[VEHICLE_LENGTH * 0.08, bodyBottom + bodyHeight * 0.45, 0]}
+            rotation={[0, 0, Math.PI / 2]}
+          >
+            <cylinderGeometry args={[bodyHeight * 0.4, bodyHeight * 0.4, VEHICLE_LENGTH * 0.62, 20]} />
+            <meshStandardMaterial color={part.color} />
+          </mesh>
+          <mesh castShadow position={[VEHICLE_LENGTH * 0.39, bodyBottom + bodyHeight * 0.45, 0]}>
+            <sphereGeometry args={[bodyHeight * 0.344, 20, 16]} />
+            <meshStandardMaterial color={part.color} />
+          </mesh>
+          <mesh castShadow position={[-VEHICLE_LENGTH * 0.35, bodyBottom + bodyHeight * 0.52, 0]}>
+            <boxGeometry args={[VEHICLE_LENGTH * 0.26, bodyHeight * 0.88, VEHICLE_WIDTH * 0.92]} />
+            <meshStandardMaterial color={part.color} />
+          </mesh>
+          <mesh castShadow position={[VEHICLE_LENGTH * 0.2, bodyBottom + bodyHeight * 0.78, 0]}>
+            <cylinderGeometry args={[mmToWorld(4), mmToWorld(5), bodyHeight * 0.3, 16]} />
+            <meshStandardMaterial color="#49545e" />
+          </mesh>
+          <mesh castShadow position={[VEHICLE_LENGTH * 0.2, bodyBottom + bodyHeight * 0.94, 0]}>
+            <cylinderGeometry args={[mmToWorld(6), mmToWorld(6), bodyHeight * 0.1, 16]} />
+            <meshStandardMaterial color="#49545e" />
+          </mesh>
+          <mesh castShadow position={[-VEHICLE_LENGTH * 0.03, bodyBottom + bodyHeight * 0.73, 0]}>
+            <cylinderGeometry args={[mmToWorld(4), mmToWorld(4.5), bodyHeight * 0.22, 16]} />
+            <meshStandardMaterial color="#49545e" />
+          </mesh>
+          <mesh
+            position={[
+              -VEHICLE_LENGTH * 0.35,
+              bodyBottom + bodyHeight * 0.58,
+              -VEHICLE_WIDTH * 0.46 - mmToWorld(0.5),
+            ]}
+          >
+            <boxGeometry args={[VEHICLE_LENGTH * 0.12, bodyHeight * 0.3, mmToWorld(1)]} />
             <meshStandardMaterial color="#bce9ff" />
           </mesh>
         </>
