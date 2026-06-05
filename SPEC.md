@@ -36,9 +36,10 @@ Children using a mouse on a desktop or laptop browser.
 
 - Do not use Tomy logos, Plarail logos, packaging, or copied product designs.
 - Keep the project name `Railway Playground`.
-- Use original toy-like procedural geometry and color choices.
+- Use original toy-like procedural geometry and color choices for tracks,
+  supports, and UI.
 - Third-party branded train models or assets require explicit approval and a
-  clear license before they are added.
+  clear license before they are added to `assets/train`.
 
 ## 4. MVP Scope
 
@@ -51,18 +52,19 @@ Children using a mouse on a desktop or laptop browser.
   supports.
 - Endpoint snapping for track placement and movement.
 - Decorative elevated-track supports placed manually by the player.
-- A train builder with engines and coaches.
-- Dragging an assembled train onto a rail.
+- A train builder populated from `assets/train/catalog.csv`.
+- Dragging an assembled train onto a rail or clicking it near a rail.
 - Up to eight trains in the same layout.
 - Fixed-speed train movement over the connected rail graph.
 - Go, Stop, Reverse, and Delete controls for trains.
 - Rotate, Copy, Delete, and Switch controls for rails.
-- Undo, Redo, Clear All, zoom, pan, and view-rotation controls.
+- Save, Load, Undo, Redo, Clear All, zoom, pan, and mouse view rotation.
+- Browser-local scene saving and loading.
 - Responsive compact UI behavior for narrower browser windows.
 
 ### Deferred
 
-- Saving, loading, autosave, or export/import.
+- Autosave and export/import.
 - User accounts, cloud storage, and shared layout links.
 - Mobile or touch-first controls.
 - Audio.
@@ -89,7 +91,6 @@ Children using a mouse on a desktop or laptop browser.
 - RMB drag left or right rotates around the current ground target.
 - RMB drag up or down adjusts camera height while keeping the ground target in view.
 - The scroll wheel zooms in and out.
-- Top-bar left and right buttons rotate the view around the current target.
 - Camera distance is constrained to avoid losing the play area.
 
 ## 6. Track Construction
@@ -194,74 +195,124 @@ piece:
 - `Delete`: remove the piece.
 
 Dragging an existing rail moves it and recalculates its snapped placement.
-Deleting a rail also deletes any train whose engine is currently on that rail.
+Deleting a rail also deletes any train whose lead carriage is currently on that
+rail.
 
 The top bar includes:
 
+- `Save`
+- `Load`
 - `Undo`
 - `Redo`
 - `Clear All`
-- View rotation left
-- View rotation right
 
 Undo history stores up to 50 scene snapshots. Scene history includes rails and
 placed trains. The in-progress train builder is intentionally not part of the
 undo history.
 
-## 8. Train Builder
+## 8. Scene Saving And Loading
+
+### Save behavior
+
+- The first `Save` action for an unnamed scene opens a dialog asking for a
+  scene name.
+- The scene name is required before the initial save can complete.
+- A successful initial save assigns the current browser session a saved scene
+  identity.
+- Later `Save` actions for that scene update the existing saved scene directly
+  without reopening the name dialog.
+- The saved payload is a scene snapshot containing placed rails and placed
+  trains.
+- The in-progress train builder is not included in saved scene snapshots.
+
+### Load behavior
+
+- `Load` opens a dialog listing all scenes saved in the current browser storage.
+- Each saved scene row shows the scene name and last-saved timestamp.
+- The currently open saved scene is visually marked in the load list.
+- Loading a scene replaces the current placed rails and trains with the saved
+  snapshot.
+- Loading clears selection, placement preview state, active placement tools,
+  drag state, undo history, and redo history.
+
+### Persistence limits
+
+- Saved scenes are stored in `window.localStorage` under
+  `railway-playground:saved-scenes`.
+- Saved scenes persist across browser restarts and device reboots when the user
+  returns in the same browser profile, on the same device, and at the same app
+  origin.
+- Saved scenes do not sync to other devices, browsers, browser profiles, or app
+  origins.
+- Private browsing sessions, clearing site data, browser storage pressure, or
+  browser privacy settings may remove saved scenes.
+- The saved scene list persists after a page reload, but the current open scene
+  identity is runtime state. After reopening the app, the user can choose a
+  saved scene from `Load`; quick-save resumes after that load.
+
+## 9. Train Builder
 
 ### Layout
 
 The right-side Train Builder contains:
 
-1. Engine selection.
-2. Coach catalog.
+1. Front-carriage catalog.
+2. Trailer carriage catalog.
 3. The current train assembly strip.
 4. A finished-train drag handle.
 
 ### Starter catalog
 
-| Part | Variants | Notes |
+The catalog is read from `assets/train/catalog.csv`.
+
+| Column | Meaning |
 | --- | --- | --- |
-| Powered engine | Gray conventional, red bullet train, yellow steam engine | Required first vehicle |
-| Passenger coach | Gray | Standard enclosed coach |
-| Cargo wagon | Orange | Open-top visual variety |
-| Rear coach | Red | Tail-light detail |
+| `type` | `front` or `trailer` |
+| `label` | User-facing model name |
+| `filename` | Asset basename without extension |
+
+Each row uses `filename + ".obj"` for the mesh and `filename + "_d.png"` for
+the UV texture.
 
 ### Vehicle dimensions
 
-Every train segment uses the same outer envelope:
+Real train assets are normalized into the toy scene scale:
 
 | Dimension | Value |
 | --- | --- |
-| Length | `100 mm` |
+| Length | `150 mm` |
 | Width | `38 mm` |
-| Height | `40 mm` |
+| Height | `42 mm` |
 
-Engine silhouettes, passenger, cargo, and rear-coach details remain inside this
-envelope. Wheelsets are positioned to run inside the track's `20 mm`
-raised-ridge gap.
+The OBJ files are authored with their long axis along local `Z`. Runtime
+rendering rotates that axis onto the route tangent and applies the catalog
+texture to the mesh.
 
 ### Builder rules
 
-- A valid train starts with exactly one powered engine.
-- Choosing a new engine replaces the existing engine while preserving coaches.
-- A train may have zero to five trailing vehicles.
-- Coaches may be reordered or removed from the assembly strip.
+- A valid train starts with a `front` carriage.
+- After the lead carriage exists, additional carriages may be either `trailer`
+  or `front` type.
+- Section 2 lists trailer carriages only; front carriages are not repeated
+  there.
+- Any non-lead `front` carriage is rendered rotated `180` degrees for physical
+  linkage.
+- Trailing carriages may be reordered or removed from the assembly strip.
 - The builder may be cleared without changing already placed trains.
-- Dragging the finished train onto a nearby rail creates a placed train and
-  clears the builder.
+- Dragging the finished train onto a nearby rail or clicking it near a rail
+  creates a placed train and clears the builder.
 - `Esc` or RMB exits train placement mode without placing the train.
 - A newly placed train starts stopped and selected.
 
-## 9. Train Simulation
+## 10. Train Simulation
 
 ### Behavior
 
 - A layout may contain up to eight trains.
 - Trains run at a fixed child-friendly speed.
-- Engines follow the connected route graph.
-- Coaches follow a sampled trail of prior engine positions at fixed spacing.
+- Lead carriages follow the connected route graph.
+- Trailing carriages follow a sampled trail of prior lead-carriage positions at
+  fixed spacing.
 - Every segment pitches to match the current track slope.
 - Slopes change train height but do not affect speed.
 - Trains stop gently when they reach an unconnected endpoint.
@@ -278,7 +329,7 @@ Click a placed train to show:
 - `Delete`
 
 Reverse swaps the current route direction, mirrors progress along that route,
-and clears the stored coach trail so the consist settles into its new
+and clears the stored carriage trail so the consist settles into its new
 direction.
 
 ### Simulation constants
@@ -286,19 +337,19 @@ direction.
 | Constant | Value | Purpose |
 | --- | --- | --- |
 | `TRAIN_SPEED` | `2.65` | World units travelled per second |
-| Coach spacing | `1.8519` units = `100 mm` | Distance between sampled vehicle poses |
-| Trail cap | `320` samples | Maximum stored engine path history |
+| Carriage spacing | `2.8889` units = `156 mm` | Distance between sampled vehicle poses |
+| Trail cap | `1200` samples | Maximum stored lead-carriage path history |
 | Frame delta cap | `0.05` seconds | Limits large animation jumps |
 
-## 10. User Interface
+## 11. User Interface
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Railway Playground      Undo Redo Clear All       Turn View │
+│ Railway Playground      Save Load Undo Redo Clear All       │
 ├──────────────┬────────────────────────────┬──────────────────┤
 │ Track Box    │                            │ Train Builder    │
 │              │       3D grassland         │                  │
-│ rail pieces  │       floating controls    │ engines/coaches  │
+│ rail pieces  │       floating controls    │ fronts/trailers  │
 │ supports     │                            │ assembled train  │
 └──────────────┴────────────────────────────┴──────────────────┘
 ```
@@ -311,7 +362,7 @@ direction.
 - The 3D stage always remains between the two panels.
 - Mobile and touch-specific interaction design remain deferred.
 
-## 11. Technical Architecture
+## 12. Technical Architecture
 
 ### Stack
 
@@ -330,7 +381,8 @@ direction.
 | `src/App.tsx` | Application shell, top bar, stage drop handling, notices |
 | `src/types.ts` | Shared editor and simulation data structures |
 | `src/railMath.ts` | Rail endpoints, routes, snapping, interpolation, connections |
-| `src/store.ts` | Zustand state, history, builder actions, simulation stepping |
+| `src/trainCatalog.ts` | Train asset catalog parsing and URL resolution |
+| `src/store.ts` | Zustand state, history, saved scenes, builder actions, simulation stepping |
 | `src/components/RailScene.tsx` | 3D rendering, camera, selection controls, animation loop |
 | `src/components/TrackPalette.tsx` | Left-side rail catalog |
 | `src/components/TrainBuilder.tsx` | Right-side train assembly interface |
@@ -357,6 +409,18 @@ interface TrainSet {
   running: boolean;
   trail: TrailPoint[];
 }
+
+interface SceneSnapshot {
+  rails: RailPiece[];
+  trains: TrainSet[];
+}
+
+interface SavedScene {
+  id: string;
+  name: string;
+  savedAt: string;
+  snapshot: SceneSnapshot;
+}
 ```
 
 ### Route graph design
@@ -366,12 +430,12 @@ positions are transformed into world space using the rail position and
 rotation. A connection exists when two world-space endpoints fall within the
 connection tolerance.
 
-The simulation does not use rigid-body physics. Each engine advances along a
-route curve, detects the matching endpoint on the next rail, asks that rail for
-the route corresponding to its entry endpoint, and continues with any
+The simulation does not use rigid-body physics. Each lead carriage advances
+along a route curve, detects the matching endpoint on the next rail, asks that
+rail for the route corresponding to its entry endpoint, and continues with any
 overshoot distance preserved.
 
-## 12. Acceptance Criteria
+## 13. Acceptance Criteria
 
 - A child can build connected tracks using visible mouse controls.
 - Straight, half-straight, quarter-straight, curved, Y-switch, turnout L,
@@ -379,16 +443,21 @@ overshoot distance preserved.
 - Nearby rail endpoints snap together automatically.
 - Rails can be moved, rotated, duplicated, and deleted.
 - A Y switch or turnout route can be toggled while trains are running.
-- Children can assemble a train with an engine and up to five coaches.
-- A finished train can be dragged onto a rail and started with the floating
-  `Go` button.
+- Children can assemble a train from a front carriage followed by any mix of
+  trailer and additional front carriages.
+- A finished train can be dragged or clicked onto a rail and started with the
+  floating `Go` button.
 - A train follows connected rails and stops at unfinished endpoints.
 - Several trains can run at once without collision handling.
+- The first scene save asks for a name and stores the current scene locally.
+- Subsequent saves of that same scene update it without reopening the name
+  dialog.
+- Saved scenes appear in the `Load` dialog and can replace the current scene.
 - Undo, Redo, and Clear All remain available through visible controls.
 - The interface remains usable in a narrower side-by-side browser window.
 - `npm run build` succeeds.
 
-## 13. Current MVP Notes
+## 14. Current MVP Notes
 
 The initial implementation is a playable MVP. These refinements are reasonable
 future improvements but are not blockers for the current release:

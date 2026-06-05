@@ -10,47 +10,74 @@ import {
   routeLength,
   TRAIN_SPEED,
 } from "./railMath";
+import { getTrainCatalogItem } from "./trainCatalog";
 import type {
   PlacementPreview,
   RailPiece,
   RailType,
+  SavedScene,
   SceneSnapshot,
   Selection,
   TrainSet,
   Vec3,
-  VehicleKind,
   VehiclePart,
 } from "./types";
 
 const id = () => crypto.randomUUID();
 const clone = <T,>(value: T): T => structuredClone(value);
+const TRAIN_TRAIL_LIMIT = 1200;
+const SAVED_SCENES_KEY = "railway-playground:saved-scenes";
 const isSwitchableRail = (type: RailType) =>
   type === "switch" || type === "turnoutLeft" || type === "turnoutRight";
 
-const engineColors: Record<string, string> = {
-  gray: "#7d8792",
-  red: "#ef5350",
-  yellow: "#ffbf34",
-};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
-function newPart(kind: VehicleKind, variant?: string): VehiclePart {
-  if (kind === "engine") {
-    const requestedColor = variant === "blue" ? "gray" : variant ?? "gray";
-    const colorName = engineColors[requestedColor] ? requestedColor : "gray";
-    return {
-      id: id(),
-      kind,
-      color: engineColors[colorName],
-      label: `${colorName[0].toUpperCase()}${colorName.slice(1)} engine`,
-    };
+function isSceneSnapshot(value: unknown): value is SceneSnapshot {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.rails) &&
+    Array.isArray(value.trains)
+  );
+}
+
+function isSavedScene(value: unknown): value is SavedScene {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.savedAt === "string" &&
+    isSceneSnapshot(value.snapshot)
+  );
+}
+
+function readSavedScenes(): SavedScene[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SAVED_SCENES_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isSavedScene) : [];
+  } catch {
+    return [];
   }
-  if (kind === "passenger") {
-    return { id: id(), kind, color: "#8b96a1", label: "Passenger coach" };
-  }
-  if (kind === "cargo") {
-    return { id: id(), kind, color: "#f59f38", label: "Cargo wagon" };
-  }
-  return { id: id(), kind, color: "#e95658", label: "Rear coach" };
+}
+
+function writeSavedScenes(scenes: SavedScene[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SAVED_SCENES_KEY, JSON.stringify(scenes));
+}
+
+function newPart(catalogId: string): VehiclePart | null {
+  const item = getTrainCatalogItem(catalogId);
+  if (!item) return null;
+  return {
+    id: id(),
+    catalogId: item.id,
+    carriageType: item.type,
+    label: item.label,
+    filename: item.filename,
+  };
 }
 
 interface EditorStore {
@@ -69,6 +96,8 @@ interface EditorStore {
   draggingRailId: string | null;
   cameraTurn: number;
   notice: string | null;
+  savedScenes: SavedScene[];
+  currentSceneId: string | null;
   setNotice: (notice: string | null) => void;
   select: (selection: Selection) => void;
   chooseRailTool: (type: RailType | null) => void;
@@ -88,7 +117,9 @@ interface EditorStore {
   undo: () => void;
   redo: () => void;
   turnCamera: (amount: number) => void;
-  addBuilderPart: (kind: VehicleKind, variant?: string) => void;
+  saveScene: (name?: string) => SavedScene | null;
+  loadScene: (sceneId: string) => void;
+  addBuilderPart: (catalogId: string) => void;
   removeBuilderPart: (partId: string) => void;
   moveBuilderPart: (partId: string, offset: number) => void;
   clearBuilder: () => void;
@@ -129,6 +160,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   draggingRailId: null,
   cameraTurn: 0,
   notice: null,
+  savedScenes: readSavedScenes(),
+  currentSceneId: null,
 
   setNotice: (notice) => set({ notice }),
   select: (selection) => set({ selection }),
@@ -371,31 +404,103 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   turnCamera: (amount) => set((state) => ({ cameraTurn: state.cameraTurn + amount })),
 
-  addBuilderPart: (kind, variant) => {
+  saveScene: (name) => {
     const state = get();
-    if (kind === "engine") {
-      const trailing = state.builder.filter((part) => part.kind !== "engine");
-      set({ builder: [newPart(kind, variant), ...trailing] });
+    const existing = state.currentSceneId
+      ? state.savedScenes.find((scene) => scene.id === state.currentSceneId)
+      : null;
+    const trimmedName = name?.trim();
+    const sceneName = trimmedName || existing?.name;
+    if (!sceneName) {
+      set({ notice: "Name the scene before saving." });
+      return null;
+    }
+
+    const scene: SavedScene = {
+      id: existing?.id ?? id(),
+      name: sceneName,
+      savedAt: new Date().toISOString(),
+      snapshot: snapshot(state),
+    };
+    const savedScenes = existing
+      ? state.savedScenes.map((item) => (item.id === scene.id ? scene : item))
+      : [scene, ...state.savedScenes];
+
+    try {
+      writeSavedScenes(savedScenes);
+    } catch {
+      set({ notice: "The scene could not be saved in this browser." });
+      return null;
+    }
+
+    set({
+      savedScenes,
+      currentSceneId: scene.id,
+      notice: `Saved "${scene.name}".`,
+    });
+    return scene;
+  },
+
+  loadScene: (sceneId) => {
+    const state = get();
+    const scene = state.savedScenes.find((item) => item.id === sceneId);
+    if (!scene) {
+      set({ notice: "That saved scene could not be found." });
       return;
     }
-    const trailingCount = state.builder.filter((part) => part.kind !== "engine").length;
-    if (trailingCount >= 5) {
-      set({ notice: "A train can carry up to five coaches." });
+
+    set({
+      rails: clone(scene.snapshot.rails),
+      trains: clone(scene.snapshot.trains),
+      selection: null,
+      activeRailTool: null,
+      trainPlacementActive: false,
+      placementRotation: 0,
+      preview: null,
+      previewRaw: null,
+      past: [],
+      future: [],
+      dragStart: null,
+      draggingRailId: null,
+      currentSceneId: scene.id,
+      notice: `Loaded "${scene.name}".`,
+    });
+  },
+
+  addBuilderPart: (catalogId) => {
+    const state = get();
+    const part = newPart(catalogId);
+    if (!part) {
+      set({ notice: "That train model is missing from the catalog." });
       return;
     }
-    set({ builder: [...state.builder, newPart(kind, variant)] });
+
+    if (part.carriageType === "front") {
+      set({ builder: state.builder.length === 0 ? [part] : [...state.builder, part] });
+      return;
+    }
+
+    if (state.builder[0]?.carriageType !== "front") {
+      set({ notice: "Choose a front carriage first." });
+      return;
+    }
+
+    set({ builder: [...state.builder, part] });
   },
 
   removeBuilderPart: (partId) =>
-    set((state) => ({ builder: state.builder.filter((part) => part.id !== partId) })),
+    set((state) => {
+      if (state.builder[0]?.id === partId) return { builder: [] };
+      return { builder: state.builder.filter((part) => part.id !== partId) };
+    }),
 
   moveBuilderPart: (partId, offset) =>
     set((state) => {
       const builder = [...state.builder];
       const index = builder.findIndex((part) => part.id === partId);
-      if (index <= 0 && offset < 0) return {};
-      const next = Math.max(0, Math.min(builder.length - 1, index + offset));
-      if (builder[index]?.kind === "engine" || builder[next]?.kind === "engine") return {};
+      if (index < 1) return {};
+      const next = Math.max(1, Math.min(builder.length - 1, index + offset));
+      if (next === index) return {};
       [builder[index], builder[next]] = [builder[next], builder[index]];
       return { builder };
     }),
@@ -408,8 +513,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       set({ notice: "The railway already has eight trains running." });
       return;
     }
-    if (state.builder[0]?.kind !== "engine") {
-      set({ notice: "Choose an engine before placing your train." });
+    if (state.builder[0]?.carriageType !== "front") {
+      set({ notice: "Choose a front carriage before placing your train." });
       return;
     }
     const placement = closestRailPlacement(state.rails, raw);
@@ -430,6 +535,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       ...withHistory(state, { rails: state.rails, trains: [...state.trains, train] }),
       builder: [],
       selection: { kind: "train", id: train.id },
+      trainPlacementActive: false,
+      activeRailTool: null,
+      preview: null,
+      previewRaw: null,
       notice: "Train ready. Press Go when you want to run it.",
     });
   },
@@ -509,7 +618,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return moved
         ? {
             ...updated,
-            trail: [{ position: pointOnRoute(rail, route, progress) }, ...train.trail].slice(0, 320),
+            trail: [{ position: pointOnRoute(rail, route, progress) }, ...train.trail].slice(
+              0,
+              TRAIN_TRAIL_LIMIT,
+            ),
           }
         : updated;
     });

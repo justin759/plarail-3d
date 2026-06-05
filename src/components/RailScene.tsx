@@ -1,14 +1,14 @@
 import { Html, MapControls, Sky } from "@react-three/drei";
-import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { Canvas, type ThreeEvent, useFrame, useLoader, useThree } from "@react-three/fiber";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import {
   CURVE_ANGLE,
   mmToWorld,
   pointOnRoute,
   poseForTrain,
   RIDGE_CENTER_OFFSET,
-  RIDGE_GAP,
   RIDGE_HEIGHT,
   RIDGE_WIDTH,
   railRoutes,
@@ -17,10 +17,10 @@ import {
   TRACK_WIDTH,
   LEVEL_HEIGHT,
   VEHICLE_HEIGHT,
-  VEHICLE_LENGTH,
   VEHICLE_WIDTH,
 } from "../railMath";
 import { useEditorStore } from "../store";
+import { getTrainCatalogItem } from "../trainCatalog";
 import type {
   PlacementPreview,
   RailPiece,
@@ -37,6 +37,11 @@ interface RailSceneProps {
 }
 
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const TRAIN_MODEL_LENGTH = mmToWorld(150);
+const TRAIN_MODEL_WIDTH = VEHICLE_WIDTH;
+const TRAIN_MODEL_HEIGHT = VEHICLE_HEIGHT * 1.05;
+const TRAIN_LINK_GAP = mmToWorld(6);
+const TRAIN_MODEL_CLEARANCE = mmToWorld(1.5);
 
 function Projector({ registerProjector }: RailSceneProps) {
   const { camera, gl } = useThree();
@@ -317,6 +322,8 @@ function RailActor({ rail }: { rail: RailPiece }) {
   const beginRailDrag = useEditorStore((state) => state.beginRailDrag);
   const moveRailLive = useEditorStore((state) => state.moveRailLive);
   const endRailDrag = useEditorStore((state) => state.endRailDrag);
+  const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
+  const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
 
   const onPointerMove = (event: ThreeEvent<PointerEvent>) => {
     if (event.buttons !== 1) return;
@@ -329,13 +336,20 @@ function RailActor({ rail }: { rail: RailPiece }) {
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => {
         event.stopPropagation();
+        if (trainPlacementActive) {
+          addTrainFromBuilder([event.point.x, event.point.y, event.point.z]);
+          return;
+        }
         beginRailDrag(rail.id);
         (event.target as Element).setPointerCapture(event.pointerId);
       }}
       onPointerMove={onPointerMove}
       onPointerUp={(event) => {
         event.stopPropagation();
-        (event.target as Element).releasePointerCapture(event.pointerId);
+        const target = event.target as Element;
+        if (target.hasPointerCapture(event.pointerId)) {
+          target.releasePointerCapture(event.pointerId);
+        }
         endRailDrag();
       }}
     >
@@ -389,189 +403,79 @@ function sampleTrail(
   };
 }
 
-function Wheel({ x, z }: { x: number; z: number }) {
-  const wheelRadius = mmToWorld(6);
-  return (
-    <mesh castShadow position={[x, wheelRadius, z]} rotation={[Math.PI / 2, 0, 0]}>
-      <cylinderGeometry args={[wheelRadius, wheelRadius, mmToWorld(4), 16]} />
-      <meshStandardMaterial color="#293a4b" />
-    </mesh>
-  );
-}
-
 function VehicleModel({
   part,
   position,
   tangent,
+  facesBackward,
   onSelect,
 }: {
   part: VehiclePart;
   position: Vec3;
   tangent: Vec3;
+  facesBackward: boolean;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
 }) {
+  const asset = getTrainCatalogItem(part.catalogId);
   const yaw = -Math.atan2(tangent[2], tangent[0]);
   const pitch = Math.atan2(tangent[1], Math.hypot(tangent[0], tangent[2]));
-  const windowFace = -VEHICLE_WIDTH / 2 - mmToWorld(0.5);
-  const wheelZ = RIDGE_GAP / 2 - mmToWorld(3);
-  const wheelX = VEHICLE_LENGTH * 0.3;
-  const chassisHeight = mmToWorld(6);
-  const chassisY = mmToWorld(9);
-  const bodyBottom = mmToWorld(12);
-  const bodyHeight = VEHICLE_HEIGHT - bodyBottom;
-  const bodyCenterY = bodyBottom + bodyHeight / 2;
-  const engineVariant =
-    part.kind !== "engine"
-      ? null
-      : part.label === "Red engine"
-        ? "bullet"
-        : part.label === "Yellow engine"
-          ? "steam"
-          : "conventional";
+  if (!asset) return null;
+
+  const sourceObject = useLoader(OBJLoader, asset.objUrl);
+  const texture = useLoader(THREE.TextureLoader, asset.textureUrl);
+  const prepared = useMemo(() => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+
+    const object = sourceObject.clone(true);
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      metalness: 0.03,
+      roughness: 0.7,
+    });
+
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.material = material;
+    });
+
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const scale: Vec3 = [
+      TRAIN_MODEL_WIDTH / Math.max(size.x, 0.001),
+      TRAIN_MODEL_HEIGHT / Math.max(size.y, 0.001),
+      TRAIN_MODEL_LENGTH / Math.max(size.z, 0.001),
+    ];
+
+    return {
+      center,
+      floorY: box.min.y,
+      object,
+      scale,
+    };
+  }, [sourceObject, texture]);
+
+  const modelRotation = Math.PI / 2 + (facesBackward ? Math.PI : 0);
+
   return (
     <group
       onClick={onSelect}
       position={[
         position[0],
-        position[1] + TRACK_BASE_HEIGHT + RIDGE_HEIGHT,
+        position[1] + TRACK_BASE_HEIGHT + RIDGE_HEIGHT + TRAIN_MODEL_CLEARANCE,
         position[2],
       ]}
       rotation={[0, yaw, pitch]}
     >
-      <mesh castShadow position={[0, chassisY, 0]}>
-        <boxGeometry args={[VEHICLE_LENGTH, chassisHeight, VEHICLE_WIDTH]} />
-        <meshStandardMaterial color="#283e58" />
-      </mesh>
-      {engineVariant === "conventional" && (
-        <>
-          <mesh castShadow position={[-VEHICLE_LENGTH * 0.18, bodyCenterY, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.58, bodyHeight, VEHICLE_WIDTH * 0.92]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh castShadow position={[VEHICLE_LENGTH * 0.33, bodyBottom + bodyHeight * 0.3, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.36, bodyHeight * 0.6, VEHICLE_WIDTH * 0.86]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh castShadow position={[VEHICLE_LENGTH * 0.33, bodyBottom + bodyHeight * 0.69, 0]}>
-            <cylinderGeometry args={[mmToWorld(4), mmToWorld(5), bodyHeight * 0.42, 16]} />
-            <meshStandardMaterial color="#f1c34a" />
-          </mesh>
-          <mesh position={[-VEHICLE_LENGTH * 0.37, bodyBottom + bodyHeight * 0.58, windowFace]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.18, bodyHeight * 0.34, mmToWorld(1)]} />
-            <meshStandardMaterial color="#bce9ff" />
-          </mesh>
-        </>
-      )}
-      {engineVariant === "bullet" && (
-        <>
-          <mesh castShadow position={[-VEHICLE_LENGTH * 0.14, bodyCenterY, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.72, bodyHeight * 0.86, VEHICLE_WIDTH * 0.76]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh
-            castShadow
-            position={[VEHICLE_LENGTH * 0.35, bodyCenterY, 0]}
-            rotation={[0, 0, -Math.PI / 2]}
-          >
-            <coneGeometry args={[bodyHeight * 0.42, VEHICLE_LENGTH * 0.3, 20]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh
-            position={[
-              VEHICLE_LENGTH * 0.08,
-              bodyBottom + bodyHeight * 0.58,
-              -VEHICLE_WIDTH * 0.38 - mmToWorld(0.5),
-            ]}
-          >
-            <boxGeometry args={[VEHICLE_LENGTH * 0.2, bodyHeight * 0.28, mmToWorld(1)]} />
-            <meshStandardMaterial color="#bce9ff" />
-          </mesh>
-        </>
-      )}
-      {engineVariant === "steam" && (
-        <>
-          <mesh
-            castShadow
-            position={[VEHICLE_LENGTH * 0.08, bodyBottom + bodyHeight * 0.45, 0]}
-            rotation={[0, 0, Math.PI / 2]}
-          >
-            <cylinderGeometry args={[bodyHeight * 0.4, bodyHeight * 0.4, VEHICLE_LENGTH * 0.62, 20]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh castShadow position={[VEHICLE_LENGTH * 0.39, bodyBottom + bodyHeight * 0.45, 0]}>
-            <sphereGeometry args={[bodyHeight * 0.344, 20, 16]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh castShadow position={[-VEHICLE_LENGTH * 0.35, bodyBottom + bodyHeight * 0.52, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.26, bodyHeight * 0.88, VEHICLE_WIDTH * 0.92]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh castShadow position={[VEHICLE_LENGTH * 0.2, bodyBottom + bodyHeight * 0.78, 0]}>
-            <cylinderGeometry args={[mmToWorld(4), mmToWorld(5), bodyHeight * 0.3, 16]} />
-            <meshStandardMaterial color="#49545e" />
-          </mesh>
-          <mesh castShadow position={[VEHICLE_LENGTH * 0.2, bodyBottom + bodyHeight * 0.94, 0]}>
-            <cylinderGeometry args={[mmToWorld(6), mmToWorld(6), bodyHeight * 0.1, 16]} />
-            <meshStandardMaterial color="#49545e" />
-          </mesh>
-          <mesh castShadow position={[-VEHICLE_LENGTH * 0.03, bodyBottom + bodyHeight * 0.73, 0]}>
-            <cylinderGeometry args={[mmToWorld(4), mmToWorld(4.5), bodyHeight * 0.22, 16]} />
-            <meshStandardMaterial color="#49545e" />
-          </mesh>
-          <mesh
-            position={[
-              -VEHICLE_LENGTH * 0.35,
-              bodyBottom + bodyHeight * 0.58,
-              -VEHICLE_WIDTH * 0.46 - mmToWorld(0.5),
-            ]}
-          >
-            <boxGeometry args={[VEHICLE_LENGTH * 0.12, bodyHeight * 0.3, mmToWorld(1)]} />
-            <meshStandardMaterial color="#bce9ff" />
-          </mesh>
-        </>
-      )}
-      {part.kind === "passenger" && (
-        <>
-          <mesh castShadow position={[0, bodyCenterY, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight, VEHICLE_WIDTH * 0.92]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          {[-0.28, 0, 0.28].map((x) => (
-            <mesh key={x} position={[VEHICLE_LENGTH * x, bodyCenterY, windowFace]}>
-              <boxGeometry args={[VEHICLE_LENGTH * 0.16, bodyHeight * 0.38, mmToWorld(1)]} />
-              <meshStandardMaterial color="#d8f4ff" />
-            </mesh>
-          ))}
-        </>
-      )}
-      {part.kind === "cargo" && (
-        <>
-          <mesh castShadow position={[0, bodyBottom + bodyHeight * 0.28, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight * 0.56, VEHICLE_WIDTH]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh position={[0, bodyBottom + bodyHeight * 0.62, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.76, bodyHeight * 0.24, VEHICLE_WIDTH * 0.78]} />
-            <meshStandardMaterial color="#ba6d35" />
-          </mesh>
-        </>
-      )}
-      {part.kind === "rear" && (
-        <>
-          <mesh castShadow position={[0, bodyCenterY, 0]}>
-            <boxGeometry args={[VEHICLE_LENGTH * 0.9, bodyHeight, VEHICLE_WIDTH * 0.92]} />
-            <meshStandardMaterial color={part.color} />
-          </mesh>
-          <mesh position={[-VEHICLE_LENGTH * 0.46, bodyCenterY, 0]}>
-            <sphereGeometry args={[mmToWorld(4), 16, 16]} />
-            <meshStandardMaterial color="#ffe05c" emissive="#f29632" emissiveIntensity={0.7} />
-          </mesh>
-        </>
-      )}
-      <Wheel x={-wheelX} z={-wheelZ} />
-      <Wheel x={wheelX} z={-wheelZ} />
-      <Wheel x={-wheelX} z={wheelZ} />
-      <Wheel x={wheelX} z={wheelZ} />
+      <group rotation={[0, modelRotation, 0]} scale={prepared.scale}>
+        <primitive
+          object={prepared.object}
+          position={[-prepared.center.x, -prepared.floorY, -prepared.center.z]}
+        />
+      </group>
     </group>
   );
 }
@@ -610,12 +514,14 @@ function TrainActor({ train }: { train: TrainSet }) {
   return (
     <group>
       {train.cars.map((part, index) => {
+        const carriageOffset = index * (TRAIN_MODEL_LENGTH + TRAIN_LINK_GAP);
         const vehiclePose =
           index === 0
             ? pose
-            : sampleTrail(train.trail, index * VEHICLE_LENGTH, pose.position, pose.tangent);
+            : sampleTrail(train.trail, carriageOffset, pose.position, pose.tangent);
         return (
           <VehicleModel
+            facesBackward={part.carriageType === "front" && index > 0}
             key={part.id}
             onSelect={(event) => {
               event.stopPropagation();
@@ -642,9 +548,11 @@ function World() {
   const rails = useEditorStore((state) => state.rails);
   const trains = useEditorStore((state) => state.trains);
   const activeTool = useEditorStore((state) => state.activeRailTool);
+  const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
   const preview = useEditorStore((state) => state.preview);
   const updatePreview = useEditorStore((state) => state.updatePreview);
   const placeRail = useEditorStore((state) => state.placeRail);
+  const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
   const select = useEditorStore((state) => state.select);
 
   return (
@@ -656,6 +564,7 @@ function World() {
         onClick={(event) => {
           event.stopPropagation();
           if (activeTool) placeRail(activeTool, [event.point.x, 0, event.point.z]);
+          else if (trainPlacementActive) addTrainFromBuilder([event.point.x, 0, event.point.z]);
           else select(null);
         }}
         onPointerMove={(event) => {
@@ -672,9 +581,11 @@ function World() {
         <RailActor key={rail.id} rail={rail} />
       ))}
       {preview && activeTool && <GhostRail preview={preview} />}
-      {trains.map((train) => (
-        <TrainActor key={train.id} train={train} />
-      ))}
+      <Suspense fallback={null}>
+        {trains.map((train) => (
+          <TrainActor key={train.id} train={train} />
+        ))}
+      </Suspense>
       <Simulation />
       <CameraRig />
     </>

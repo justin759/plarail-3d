@@ -12,15 +12,14 @@ export type RailType =
   | "slope"
   | "support";
 
-export type VehicleKind = "engine" | "passenger" | "cargo" | "rear";
-
-export type EngineColor = "gray" | "red" | "yellow";
+export type TrainCarriageType = "front" | "trailer";
 
 export interface VehiclePart {
   id: string;
-  kind: VehicleKind;
-  color: string;
+  catalogId: string;
+  carriageType: TrainCarriageType;
   label: string;
+  filename: string;
 }
 
 export interface RailPiece {
@@ -59,6 +58,13 @@ export interface RailEndpoint {
 export interface SceneSnapshot {
   rails: RailPiece[];
   trains: TrainSet[];
+}
+
+export interface SavedScene {
+  id: string;
+  name: string;
+  savedAt: string;
+  snapshot: SceneSnapshot;
 }
 
 export interface PlacementPreview {

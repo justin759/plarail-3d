@@ -30,6 +30,7 @@ added.
 | `src/App.tsx` | Shell layout, top bar, drag/drop projection, notices |
 | `src/types.ts` | Shared TypeScript models |
 | `src/railMath.ts` | Core route graph and placement calculations |
+| `src/trainCatalog.ts` | Real train asset catalog parsing and URL resolution |
 | `src/store.ts` | Zustand editor state, undo history, builder, train stepping |
 | `src/components/RailScene.tsx` | Procedural 3D models and animation loop |
 | `src/components/TrackPalette.tsx` | Track catalog |
@@ -67,12 +68,13 @@ The canonical conversion is `54 mm` per world unit:
 - Raised-ridge interior gap: `20 mm`.
 - Curve radius: `215 mm`, with eight 45-degree pieces per full circle.
 - Slope: `432 mm` horizontal S-shaped run rising `50 mm`.
-- Train segment: `100 mm L x 38 mm W x 40 mm H`.
+- Real train model render envelope: `150 mm L x 38 mm W x 42 mm H`.
 
-Engine variants may use different procedural silhouettes, but every detail must
-remain inside the shared train-segment envelope. The current catalog uses a gray
-conventional engine, red bullet train, yellow steam engine, and gray passenger
-coach.
+Train carriages are loaded from `assets/train/catalog.csv`. Each catalog row
+uses `filename + ".obj"` as the mesh and `filename + "_d.png"` as the UV
+texture. The OBJ long axis is local `Z`; runtime rendering rotates it onto the
+route tangent. Any non-lead front carriage is rotated `180` degrees for
+physical linkage.
 
 The crossing and Y-switch dimensions are explicitly documented assumptions in
 `SPEC.md`. Turnouts combine the exact standard-straight and standard-curve
@@ -86,7 +88,8 @@ routes. Update assumptions when better measurements are available.
 - Slopes alter height but not speed.
 - Train segments pitch to follow slope tangents.
 - The placed-train limit is eight.
-- A built train has one engine followed by at most five coaches.
+- A built train has one lead front carriage followed by any mix of trailers and
+  additional front carriages.
 
 Do not add penalties, failures, or realism systems unless the product spec is
 updated first.
@@ -121,18 +124,18 @@ Update these locations together:
 
 Update these locations together:
 
-1. Extend `VehicleKind` in `src/types.ts` if needed.
-2. Add builder metadata and creation behavior in `src/store.ts`.
-3. Add the catalog entry in `src/components/TrainBuilder.tsx`.
-4. Add procedural geometry in `VehicleModel()` in
-   `src/components/RailScene.tsx`.
+1. Add the `front` or `trailer` row to `assets/train/catalog.csv`.
+2. Add the matching `.obj` mesh and `_d.png` UV texture to `assets/train/`.
+3. Update builder behavior in `src/store.ts` only if sequencing rules change.
+4. Update asset normalization/rendering in `VehicleModel()` in
+   `src/components/RailScene.tsx` only if the mesh authoring convention changes.
 5. Update `SPEC.md`.
 
 ### Change simulation rules
 
 Start in `src/railMath.ts` for geometry and route decisions. Start in
-`tickTrains()` in `src/store.ts` for frame-by-frame movement. Keep coach
-following based on sampled engine trail positions unless there is a strong
+`tickTrains()` in `src/store.ts` for frame-by-frame movement. Keep carriage
+following based on sampled lead-carriage trail positions unless there is a strong
 reason to replace it.
 
 ## Validation Checklist
@@ -149,8 +152,8 @@ For user-facing or simulation changes, also open the local app and verify:
    turnout R, crossing, slope, and support pieces.
 2. Move, rotate, duplicate, and delete a selected rail.
 3. Toggle a Y switch and both turnouts, then confirm their levers move.
-4. Build a train with an engine and several coaches.
-5. Drag the finished train onto a rail.
+4. Build a train with a lead front, trailers, and an additional front carriage.
+5. Drag or click-place the finished train onto a rail.
 6. Press Go and confirm the train follows connected rails.
 7. Confirm the train stops at an unfinished endpoint.
 8. Reverse and delete a selected train.
@@ -174,4 +177,4 @@ For user-facing or simulation changes, also open the local app and verify:
 - Preserve undo history for scene-changing editor actions.
 - Avoid committing `node_modules/`, `dist/`, or TypeScript build metadata.
 - Update `SPEC.md` whenever product behavior or scope changes.
-- Prefer small procedural models over external asset dependencies for the MVP.
+- Keep new train assets catalog-driven and scoped to `assets/train`.

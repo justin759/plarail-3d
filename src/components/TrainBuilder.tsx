@@ -1,22 +1,34 @@
 import { useEditorStore } from "../store";
-import type { VehicleKind } from "../types";
+import { frontCarriages, trailerCarriages, type TrainCatalogItem } from "../trainCatalog";
 import { dragMime } from "./TrackPalette";
 
-const carCatalog: { kind: VehicleKind; label: string; detail: string; color: string }[] = [
-  { kind: "passenger", label: "Passenger", detail: "Gray coach", color: "#8b96a1" },
-  { kind: "cargo", label: "Cargo", detail: "Orange wagon", color: "#f59f38" },
-  { kind: "rear", label: "Rear Coach", detail: "Red tail coach", color: "#e95658" },
-];
-
-const engineCatalog = [
-  { variant: "gray", color: "#7d8792" },
-  { variant: "red", color: "#ef5350" },
-  { variant: "yellow", color: "#ffbf34" },
-];
-
-function setPartDrag(event: React.DragEvent, kind: VehicleKind, variant?: string) {
+function setPartDrag(event: React.DragEvent, catalogId: string) {
   event.dataTransfer.effectAllowed = "copy";
-  event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "builder-part", partKind: kind, variant }));
+  event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "builder-part", catalogId }));
+}
+
+function CarriageChoice({
+  item,
+  onChoose,
+}: {
+  item: TrainCatalogItem;
+  onChoose: (catalogId: string) => void;
+}) {
+  return (
+    <button
+      className={`carriage-choice type-${item.type}`}
+      draggable
+      onClick={() => onChoose(item.id)}
+      onDragStart={(event) => setPartDrag(event, item.id)}
+      type="button"
+    >
+      <span className="carriage-thumb" style={{ backgroundImage: `url("${item.textureUrl}")` }} />
+      <span>
+        <strong>{item.label}</strong>
+        <small>{item.type}</small>
+      </span>
+    </button>
+  );
 }
 
 export function TrainBuilder() {
@@ -27,7 +39,7 @@ export function TrainBuilder() {
   const clearBuilder = useEditorStore((state) => state.clearBuilder);
   const beginTrainPlacement = useEditorStore((state) => state.beginTrainPlacement);
   const cancelPlacement = useEditorStore((state) => state.cancelPlacement);
-  const hasEngine = builder[0]?.kind === "engine";
+  const hasFront = builder[0]?.carriageType === "front";
 
   return (
     <aside className="side-panel train-panel" aria-label="Train builder">
@@ -37,46 +49,19 @@ export function TrainBuilder() {
       </div>
 
       <section className="builder-section">
-        <div className="section-label">1. Choose an engine</div>
-        <div className="engine-row">
-          {engineCatalog.map((engine) => (
-            <button
-              aria-label={`${engine.variant} engine`}
-              className="engine-choice"
-              draggable
-              key={engine.variant}
-              onClick={() => addBuilderPart("engine", engine.variant)}
-              onDragStart={(event) => setPartDrag(event, "engine", engine.variant)}
-              style={{ "--vehicle-color": engine.color } as React.CSSProperties}
-              type="button"
-            >
-              <span className="engine-mini">
-                <i />
-              </span>
-              <small>{engine.variant}</small>
-            </button>
+        <div className="section-label">1. Front carriage</div>
+        <div className="carriage-grid">
+          {frontCarriages.map((item) => (
+            <CarriageChoice item={item} key={item.id} onChoose={addBuilderPart} />
           ))}
         </div>
       </section>
 
       <section className="builder-section">
-        <div className="section-label">2. Add coaches</div>
-        <div className="coach-grid">
-          {carCatalog.map((car) => (
-            <button
-              className="coach-choice"
-              draggable
-              key={car.kind}
-              onClick={() => addBuilderPart(car.kind)}
-              onDragStart={(event) => setPartDrag(event, car.kind)}
-              type="button"
-            >
-              <span className="coach-swatch" style={{ backgroundColor: car.color }} />
-              <span>
-                <strong>{car.label}</strong>
-                <small>{car.detail}</small>
-              </span>
-            </button>
+        <div className="section-label">2. Add carriages</div>
+        <div className="carriage-grid">
+          {trailerCarriages.map((item) => (
+            <CarriageChoice item={item} key={item.id} onChoose={addBuilderPart} />
           ))}
         </div>
       </section>
@@ -98,7 +83,9 @@ export function TrainBuilder() {
             event.preventDefault();
             try {
               const payload = JSON.parse(event.dataTransfer.getData(dragMime));
-              if (payload.kind === "builder-part") addBuilderPart(payload.partKind, payload.variant);
+              if (payload.kind === "builder-part") {
+                addBuilderPart(payload.catalogId);
+              }
             } catch {
               // Ignore unrelated drops.
             }
@@ -107,48 +94,58 @@ export function TrainBuilder() {
           {builder.length === 0 ? (
             <span>Drop train parts here</span>
           ) : (
-            builder.map((part, index) => (
-              <div className="assembled-car" key={part.id}>
-                <span className={`assembled-icon kind-${part.kind}`} style={{ background: part.color }}>
-                  {part.kind === "engine" ? <i /> : null}
-                </span>
-                <small>{index === 0 ? "Engine" : index}</small>
-                <div className="assembled-actions">
-                  {part.kind !== "engine" && (
-                    <>
-                      <button
-                        aria-label="Move coach left"
-                        disabled={index <= 1}
-                        onClick={() => moveBuilderPart(part.id, -1)}
-                        type="button"
-                      >
-                        ‹
-                      </button>
-                      <button
-                        aria-label="Move coach right"
-                        disabled={index === builder.length - 1}
-                        onClick={() => moveBuilderPart(part.id, 1)}
-                        type="button"
-                      >
-                        ›
-                      </button>
-                    </>
-                  )}
-                  <button aria-label="Remove part" onClick={() => removeBuilderPart(part.id)} type="button">
-                    ×
-                  </button>
+            builder.map((part, index) => {
+              const isTrailingFront = index > 0 && part.carriageType === "front";
+              const canMoveLeft = index > 1;
+              const canMoveRight = index > 0 && index < builder.length - 1;
+
+              return (
+                <div className="assembled-car" key={part.id}>
+                  <span className={`assembled-icon type-${part.carriageType}`} />
+                  <div className="assembled-copy">
+                    <strong>{part.label}</strong>
+                    <small>{index === 0 ? "Front" : isTrailingFront ? `Front ${index}` : `Trailer ${index}`}</small>
+                  </div>
+                  <div className="assembled-actions">
+                    {index > 0 && (
+                      <>
+                        <button
+                          aria-label="Move carriage left"
+                          disabled={!canMoveLeft}
+                          onClick={() => moveBuilderPart(part.id, -1)}
+                          type="button"
+                        >
+                          ‹
+                        </button>
+                        <button
+                          aria-label="Move carriage right"
+                          disabled={!canMoveRight}
+                          onClick={() => moveBuilderPart(part.id, 1)}
+                          type="button"
+                        >
+                          ›
+                        </button>
+                      </>
+                    )}
+                    <button aria-label="Remove part" onClick={() => removeBuilderPart(part.id)} type="button">
+                      ×
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>
 
       <div
-        className={`finished-train ${hasEngine ? "is-ready" : ""}`}
-        draggable={hasEngine}
+        className={`finished-train ${hasFront ? "is-ready" : ""}`}
+        draggable={hasFront}
+        onClick={() => {
+          if (hasFront) beginTrainPlacement();
+        }}
         onDragStart={(event) => {
-          if (!hasEngine) return;
+          if (!hasFront) return;
           beginTrainPlacement();
           event.dataTransfer.effectAllowed = "copy";
           event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "train" }));
@@ -156,8 +153,8 @@ export function TrainBuilder() {
         onDragEnd={cancelPlacement}
       >
         <div>
-          <strong>{hasEngine ? "Your train is ready" : "Start with an engine"}</strong>
-          <span>{hasEngine ? "Drag this train onto any rail" : "Pick a color above"}</span>
+          <strong>{hasFront ? "Your train is ready" : "Start with a front"}</strong>
+          <span>{hasFront ? "Drag this train onto any rail" : "Pick a model above"}</span>
         </div>
         <span className="drag-handle">Drag</span>
       </div>
