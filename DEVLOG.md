@@ -1,8 +1,8 @@
 # Development Log
 
 Use this file to record notable project changes, decisions, and follow-up ideas.
-Add new entries above older ones so the latest development journey stays easy to
-scan.
+Add new entries below older ones so the development journey reads from earliest
+to latest.
 
 ## 2026-06-05
 
@@ -82,3 +82,31 @@ scan.
 - `assets/` contains the train OBJ/PNG files and must be committed with the code
   for the real model flow to work.
 - The Vite production build still reports the known large bundle warning.
+
+## 2026-06-06
+
+### Browser Memory Investigation
+
+- Investigated browser reloads caused by high memory use in the dev app.
+- Chrome heap snapshots showed large retained `PerformanceMeasure` growth.
+- Confirmed the app does not call `performance.mark()` or
+  `performance.measure()` directly.
+- Traced the retained measures to React development instrumentation triggered
+  by frequent React/zustand commits from the train simulation loop.
+
+### Memory Fix
+
+- Added a dev-only Performance Timeline guard that clears accumulated
+  performance marks and measures every second.
+- Wired the guard into app startup before React renders.
+- Reduced train simulation state commits from every rendered frame to a fixed
+  30 Hz cadence.
+- Kept production behavior free of the dev-only timeline guard.
+
+### Verification
+
+- Verified with `npm run build`.
+- Confirmed the running Vite dev server serves the updated performance guard.
+- User re-tested the app and confirmed the memory leak is fixed.
+- `npm run lint` still cannot run because the repo does not yet include an
+  ESLint v9 flat config file.

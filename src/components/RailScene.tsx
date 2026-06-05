@@ -42,6 +42,7 @@ const TRAIN_MODEL_WIDTH = VEHICLE_WIDTH;
 const TRAIN_MODEL_HEIGHT = VEHICLE_HEIGHT * 1.05;
 const TRAIN_LINK_GAP = mmToWorld(6);
 const TRAIN_MODEL_CLEARANCE = mmToWorld(1.5);
+const SIMULATION_STEP_SECONDS = 1 / 30;
 
 function Projector({ registerProjector }: RailSceneProps) {
   const { camera, gl } = useThree();
@@ -540,7 +541,15 @@ function TrainActor({ train }: { train: TrainSet }) {
 
 function Simulation() {
   const tick = useEditorStore((state) => state.tickTrains);
-  useFrame((_, delta) => tick(Math.min(delta, 0.05)));
+  const elapsed = useRef(0);
+
+  useFrame((_, delta) => {
+    elapsed.current += Math.min(delta, 0.05);
+    if (elapsed.current < SIMULATION_STEP_SECONDS) return;
+    tick(elapsed.current);
+    elapsed.current = 0;
+  });
+
   return null;
 }
 
