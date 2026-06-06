@@ -99,8 +99,7 @@ to latest.
 - Added a dev-only Performance Timeline guard that clears accumulated
   performance marks and measures every second.
 - Wired the guard into app startup before React renders.
-- Reduced train simulation state commits from every rendered frame to a fixed
-  30 Hz cadence.
+- Kept train simulation on the render loop so train motion remains smooth.
 - Kept production behavior free of the dev-only timeline guard.
 
 ### Verification
@@ -110,3 +109,25 @@ to latest.
 - User re-tested the app and confirmed the memory leak is fixed.
 - `npm run lint` still cannot run because the repo does not yet include an
   ESLint v9 flat config file.
+
+### Train Placement Preview
+
+- Added a ghost train consist while train placement mode is active.
+- The ghost uses the same real OBJ/texture carriage models as placed trains,
+  rendered translucent and non-interactive.
+- Added a floating ghost arrow above the lead carriage to show train orientation
+  before placement.
+- The preview updates from the same nearest-rail placement logic used by final
+  placement.
+- Updated train placement help text to mention hovering near rails for preview.
+- Updated drag placement so the stage receives drag-over coordinates for the
+  3D preview.
+- Hid the browser's native ready-card drag image so the ghost train is the
+  visible placement feedback.
+- Made the ghost appear immediately when train placement begins, before a rail
+  snap is available.
+- Free-position previews use a warm orientation arrow; snapped previews use the
+  blue rail-placement arrow.
+- Starting placement from the ready tile now happens on left pointer-down and
+  seeds the ghost from the scene projection immediately, instead of waiting for
+  the first rail snap opportunity.

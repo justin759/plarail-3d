@@ -6,8 +6,10 @@ import {
   placementForRail,
   pointOnRoute,
   poseForTrain,
+  railRoutes,
   routeForEntry,
   routeLength,
+  tangentOnRoute,
   TRAIN_SPEED,
 } from "./railMath";
 import { getTrainCatalogItem } from "./trainCatalog";
@@ -19,12 +21,14 @@ import type {
   SceneSnapshot,
   Selection,
   TrainSet,
+  TrainPlacementPreview,
   Vec3,
   VehiclePart,
 } from "./types";
 
 const id = () => crypto.randomUUID();
 const clone = <T,>(value: T): T => structuredClone(value);
+const DEFAULT_TRAIN_TANGENT: Vec3 = [1, 0, 0];
 const TRAIN_TRAIL_LIMIT = 1200;
 const SAVED_SCENES_KEY = "railway-playground:saved-scenes";
 const isSwitchableRail = (type: RailType) =>
@@ -80,6 +84,55 @@ function newPart(catalogId: string): VehiclePart | null {
   };
 }
 
+type TrainPreviewState = {
+  builder: VehiclePart[];
+  rails: RailPiece[];
+  trainPreview?: TrainPlacementPreview | null;
+};
+
+function previewForTrainPlacement(
+  state: Pick<TrainPreviewState, "rails">,
+  raw: Vec3,
+  previousTangent = DEFAULT_TRAIN_TANGENT,
+): TrainPlacementPreview {
+  const placement = closestRailPlacement(state.rails, raw);
+  return placement
+    ? {
+        railId: placement.rail.id,
+        route: placement.route,
+        progress: placement.progress,
+        position: pointOnRoute(placement.rail, placement.route, placement.progress),
+        tangent: tangentOnRoute(placement.rail, placement.route, placement.progress),
+        snapped: true,
+      }
+    : {
+        position: raw,
+        tangent: previousTangent,
+        snapped: false,
+      };
+}
+
+function fallbackTrainPreview(state: Pick<TrainPreviewState, "builder" | "rails">): TrainPlacementPreview | null {
+  if (state.builder[0]?.carriageType !== "front") return null;
+  for (const rail of state.rails) {
+    const route = railRoutes(rail)[0];
+    if (!route) continue;
+    return {
+      railId: rail.id,
+      route,
+      progress: 0.5,
+      position: pointOnRoute(rail, route, 0.5),
+      tangent: tangentOnRoute(rail, route, 0.5),
+      snapped: true,
+    };
+  }
+  return {
+    position: [0, 0, 0],
+    tangent: DEFAULT_TRAIN_TANGENT,
+    snapped: false,
+  };
+}
+
 interface EditorStore {
   rails: RailPiece[];
   trains: TrainSet[];
@@ -90,6 +143,7 @@ interface EditorStore {
   placementRotation: number;
   preview: PlacementPreview | null;
   previewRaw: Vec3 | null;
+  trainPreview: TrainPlacementPreview | null;
   past: SceneSnapshot[];
   future: SceneSnapshot[];
   dragStart: SceneSnapshot | null;
@@ -101,10 +155,11 @@ interface EditorStore {
   setNotice: (notice: string | null) => void;
   select: (selection: Selection) => void;
   chooseRailTool: (type: RailType | null) => void;
-  beginTrainPlacement: () => void;
+  beginTrainPlacement: (raw?: Vec3) => void;
   cancelPlacement: () => void;
   rotatePlacementRail: () => void;
   updatePreview: (raw: Vec3) => void;
+  updateTrainPreview: (raw: Vec3) => void;
   placeRail: (type: RailType, raw: Vec3) => void;
   beginRailDrag: (railId: string) => void;
   moveRailLive: (railId: string, raw: Vec3) => void;
@@ -154,6 +209,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   placementRotation: 0,
   preview: null,
   previewRaw: null,
+  trainPreview: null,
   past: [],
   future: [],
   dragStart: null,
@@ -172,18 +228,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       placementRotation: 0,
       preview: null,
       previewRaw: null,
+      trainPreview: null,
       selection: null,
     }),
 
-  beginTrainPlacement: () =>
+  beginTrainPlacement: (raw) => {
+    const state = get();
     set({
       activeRailTool: null,
       trainPlacementActive: true,
       placementRotation: 0,
       preview: null,
       previewRaw: null,
+      trainPreview: raw ? previewForTrainPlacement(state, raw) : fallbackTrainPreview(state),
       selection: null,
-    }),
+    });
+  },
 
   cancelPlacement: () =>
     set({
@@ -192,6 +252,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       placementRotation: 0,
       preview: null,
       previewRaw: null,
+      trainPreview: null,
     }),
 
   rotatePlacementRail: () => {
@@ -226,6 +287,21 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     });
   },
 
+  updateTrainPreview: (raw) => {
+    const state = get();
+    if (!state.trainPlacementActive || state.builder[0]?.carriageType !== "front") {
+      set({ trainPreview: null });
+      return;
+    }
+    set({
+      trainPreview: previewForTrainPlacement(
+        state,
+        raw,
+        state.trainPreview?.tangent ?? DEFAULT_TRAIN_TANGENT,
+      ),
+    });
+  },
+
   placeRail: (type, raw) => {
     const state = get();
     const placementRotation = state.activeRailTool === type ? state.placementRotation : 0;
@@ -243,6 +319,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selection: { kind: "rail", id: rail.id },
       preview: placementForRail(type, raw, [...state.rails, rail], placementRotation),
       previewRaw: raw,
+      trainPreview: null,
     });
   },
 
@@ -373,6 +450,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selection: null,
       preview: null,
       previewRaw: null,
+      trainPreview: null,
     });
   },
 
@@ -539,6 +617,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       activeRailTool: null,
       preview: null,
       previewRaw: null,
+      trainPreview: null,
       notice: "Train ready. Press Go when you want to run it.",
     });
   },

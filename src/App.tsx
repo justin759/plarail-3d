@@ -230,7 +230,7 @@ function WorldFooter() {
         {activeTool
           ? `Click grass to place ${activeTool} rails. R rotates 15°. Esc or right-click exits.`
           : trainPlacementActive
-            ? "Click or drop the train near a rail. Esc or right-click exits."
+            ? "Ghost train is active. Move near a rail to snap, then click or drop."
             : "Drag to move the map. Right-drag to turn or raise the view. Scroll to zoom."}
       </span>
     </div>
@@ -241,8 +241,10 @@ function App() {
   const projector = useRef<DropProjector | null>(null);
   const placeRail = useEditorStore((state) => state.placeRail);
   const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
+  const beginTrainPlacement = useEditorStore((state) => state.beginTrainPlacement);
   const activeRailTool = useEditorStore((state) => state.activeRailTool);
   const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
+  const updateTrainPreview = useEditorStore((state) => state.updateTrainPreview);
   const cancelPlacement = useEditorStore((state) => state.cancelPlacement);
   const rotatePlacementRail = useEditorStore((state) => state.rotatePlacementRail);
   const placementActive = Boolean(activeRailTool || trainPlacementActive);
@@ -250,6 +252,13 @@ function App() {
   const registerProjector = useCallback((next: DropProjector | null) => {
     projector.current = next;
   }, []);
+
+  const beginTrainPlacementFromPointer = useCallback(
+    (clientX: number, clientY: number) => {
+      beginTrainPlacement(projector.current?.(clientX, clientY) ?? undefined);
+    },
+    [beginTrainPlacement],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -287,6 +296,9 @@ function App() {
           onDragOver={(event) => {
             event.preventDefault();
             event.dataTransfer.dropEffect = "copy";
+            if (!trainPlacementActive) return;
+            const point = projector.current?.(event.clientX, event.clientY);
+            if (point) updateTrainPreview(point);
           }}
           onDrop={(event) => {
             event.preventDefault();
@@ -320,7 +332,7 @@ function App() {
           <WorldFooter />
           <Notice />
         </section>
-        <TrainBuilder />
+        <TrainBuilder onBeginTrainPlacement={beginTrainPlacementFromPointer} />
       </div>
     </main>
   );

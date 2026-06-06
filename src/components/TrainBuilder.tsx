@@ -7,6 +7,13 @@ function setPartDrag(event: React.DragEvent, catalogId: string) {
   event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "builder-part", catalogId }));
 }
 
+function hideNativeDragImage(event: React.DragEvent) {
+  const image = document.createElement("canvas");
+  image.width = 1;
+  image.height = 1;
+  event.dataTransfer.setDragImage(image, 0, 0);
+}
+
 function CarriageChoice({
   item,
   onChoose,
@@ -31,13 +38,16 @@ function CarriageChoice({
   );
 }
 
-export function TrainBuilder() {
+interface TrainBuilderProps {
+  onBeginTrainPlacement: (clientX: number, clientY: number) => void;
+}
+
+export function TrainBuilder({ onBeginTrainPlacement }: TrainBuilderProps) {
   const builder = useEditorStore((state) => state.builder);
   const addBuilderPart = useEditorStore((state) => state.addBuilderPart);
   const removeBuilderPart = useEditorStore((state) => state.removeBuilderPart);
   const moveBuilderPart = useEditorStore((state) => state.moveBuilderPart);
   const clearBuilder = useEditorStore((state) => state.clearBuilder);
-  const beginTrainPlacement = useEditorStore((state) => state.beginTrainPlacement);
   const cancelPlacement = useEditorStore((state) => state.cancelPlacement);
   const hasFront = builder[0]?.carriageType === "front";
 
@@ -141,22 +151,26 @@ export function TrainBuilder() {
       <div
         className={`finished-train ${hasFront ? "is-ready" : ""}`}
         draggable={hasFront}
-        onClick={() => {
-          if (hasFront) beginTrainPlacement();
+        onClick={(event) => {
+          if (hasFront) onBeginTrainPlacement(event.clientX, event.clientY);
         }}
         onDragStart={(event) => {
           if (!hasFront) return;
-          beginTrainPlacement();
+          onBeginTrainPlacement(event.clientX, event.clientY);
           event.dataTransfer.effectAllowed = "copy";
           event.dataTransfer.setData(dragMime, JSON.stringify({ kind: "train" }));
+          hideNativeDragImage(event);
         }}
         onDragEnd={cancelPlacement}
+        onPointerDown={(event) => {
+          if (!hasFront || event.button !== 0) return;
+          onBeginTrainPlacement(event.clientX, event.clientY);
+        }}
       >
         <div>
-          <strong>{hasFront ? "Your train is ready" : "Start with a front"}</strong>
+          <strong>{hasFront ? "Your train is ready👆" : "Start with a front"}</strong>
           <span>{hasFront ? "Drag this train onto any rail" : "Pick a model above"}</span>
         </div>
-        <span className="drag-handle">Drag</span>
       </div>
     </aside>
   );

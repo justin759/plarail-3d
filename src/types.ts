@@ -73,3 +73,12 @@ export interface PlacementPreview {
   rotation: number;
   supportHeight?: number;
 }
+
+export interface TrainPlacementPreview {
+  railId?: string;
+  route?: [number, number];
+  progress?: number;
+  position: Vec3;
+  tangent: Vec3;
+  snapped: boolean;
+}

@@ -25,6 +25,7 @@ import type {
   PlacementPreview,
   RailPiece,
   TrailPoint,
+  TrainPlacementPreview,
   TrainSet,
   Vec3,
   VehiclePart,
@@ -42,7 +43,6 @@ const TRAIN_MODEL_WIDTH = VEHICLE_WIDTH;
 const TRAIN_MODEL_HEIGHT = VEHICLE_HEIGHT * 1.05;
 const TRAIN_LINK_GAP = mmToWorld(6);
 const TRAIN_MODEL_CLEARANCE = mmToWorld(1.5);
-const SIMULATION_STEP_SECONDS = 1 / 30;
 
 function Projector({ registerProjector }: RailSceneProps) {
   const { camera, gl } = useThree();
@@ -51,9 +51,19 @@ function Projector({ registerProjector }: RailSceneProps) {
     const raycaster = new THREE.Raycaster();
     registerProjector((clientX, clientY) => {
       const rect = gl.domElement.getBoundingClientRect();
+      const insetX = Math.min(48, rect.width / 2);
+      const insetY = Math.min(48, rect.height / 2);
+      const clampedX =
+        clientX >= rect.left && clientX <= rect.right
+          ? clientX
+          : THREE.MathUtils.clamp(clientX, rect.left + insetX, rect.right - insetX);
+      const clampedY =
+        clientY >= rect.top && clientY <= rect.bottom
+          ? clientY
+          : THREE.MathUtils.clamp(clientY, rect.top + insetY, rect.bottom - insetY);
       const pointer = new THREE.Vector2(
-        ((clientX - rect.left) / rect.width) * 2 - 1,
-        -((clientY - rect.top) / rect.height) * 2 + 1,
+        ((clampedX - rect.left) / rect.width) * 2 - 1,
+        -((clampedY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(pointer, camera);
       const world = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
@@ -325,8 +335,13 @@ function RailActor({ rail }: { rail: RailPiece }) {
   const endRailDrag = useEditorStore((state) => state.endRailDrag);
   const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
   const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
+  const updateTrainPreview = useEditorStore((state) => state.updateTrainPreview);
 
   const onPointerMove = (event: ThreeEvent<PointerEvent>) => {
+    if (trainPlacementActive) {
+      updateTrainPreview([event.point.x, event.point.y, event.point.z]);
+      return;
+    }
     if (event.buttons !== 1) return;
     const point = event.ray.intersectPlane(groundPlane, new THREE.Vector3());
     if (point) moveRailLive(rail.id, [point.x, 0, point.z]);
@@ -409,12 +424,14 @@ function VehicleModel({
   position,
   tangent,
   facesBackward,
+  ghost = false,
   onSelect,
 }: {
   part: VehiclePart;
   position: Vec3;
   tangent: Vec3;
   facesBackward: boolean;
+  ghost?: boolean;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   const asset = getTrainCatalogItem(part.catalogId);
@@ -430,9 +447,13 @@ function VehicleModel({
 
     const object = sourceObject.clone(true);
     const material = new THREE.MeshStandardMaterial({
+      color: ghost ? "#bfefff" : "#ffffff",
       map: texture,
       metalness: 0.03,
+      opacity: ghost ? 0.48 : 1,
       roughness: 0.7,
+      transparent: ghost,
+      depthWrite: !ghost,
     });
 
     object.traverse((child) => {
@@ -440,6 +461,9 @@ function VehicleModel({
       child.castShadow = true;
       child.receiveShadow = true;
       child.material = material;
+      if (ghost) {
+        child.raycast = () => null;
+      }
     });
 
     const box = new THREE.Box3().setFromObject(object);
@@ -457,13 +481,13 @@ function VehicleModel({
       object,
       scale,
     };
-  }, [sourceObject, texture]);
+  }, [ghost, sourceObject, texture]);
 
   const modelRotation = Math.PI / 2 + (facesBackward ? Math.PI : 0);
 
   return (
     <group
-      onClick={onSelect}
+      onClick={ghost ? undefined : onSelect}
       position={[
         position[0],
         position[1] + TRACK_BASE_HEIGHT + RIDGE_HEIGHT + TRAIN_MODEL_CLEARANCE,
@@ -477,6 +501,70 @@ function VehicleModel({
           position={[-prepared.center.x, -prepared.floorY, -prepared.center.z]}
         />
       </group>
+    </group>
+  );
+}
+
+function GhostDirectionArrow({
+  position,
+  snapped,
+  tangent,
+}: {
+  position: Vec3;
+  snapped: boolean;
+  tangent: Vec3;
+}) {
+  const yaw = -Math.atan2(tangent[2], tangent[0]);
+  const pitch = Math.atan2(tangent[1], Math.hypot(tangent[0], tangent[2]));
+  const arrowY = position[1] + TRACK_BASE_HEIGHT + RIDGE_HEIGHT + TRAIN_MODEL_HEIGHT + mmToWorld(16);
+  const color = snapped ? "#4cc9ff" : "#ffd76a";
+  const emissive = snapped ? "#1598d7" : "#d89013";
+
+  return (
+    <group position={[position[0], arrowY, position[2]]} rotation={[0, yaw, pitch]}>
+      <mesh position={[mmToWorld(42), 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <cylinderGeometry args={[mmToWorld(3), mmToWorld(3), mmToWorld(72), 16]} />
+        <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.35} opacity={0.72} transparent />
+      </mesh>
+      <mesh position={[mmToWorld(84), 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[mmToWorld(12), mmToWorld(24), 24]} />
+        <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.42} opacity={0.78} transparent />
+      </mesh>
+    </group>
+  );
+}
+
+function TrainPlacementGhost({
+  cars,
+  preview,
+}: {
+  cars: VehiclePart[];
+  preview: TrainPlacementPreview;
+}) {
+  if (cars[0]?.carriageType !== "front") return null;
+
+  return (
+    <group>
+      {cars.map((part, index) => {
+        const carriageOffset = index * (TRAIN_MODEL_LENGTH + TRAIN_LINK_GAP);
+        const vehiclePose =
+          index === 0
+            ? preview
+            : sampleTrail([], carriageOffset, preview.position, preview.tangent);
+
+        return (
+          <VehicleModel
+            facesBackward={part.carriageType === "front" && index > 0}
+            ghost
+            key={part.id}
+            onSelect={(event) => event.stopPropagation()}
+            part={part}
+            position={vehiclePose.position}
+            tangent={vehiclePose.tangent}
+          />
+        );
+      })}
+      <GhostDirectionArrow position={preview.position} snapped={preview.snapped} tangent={preview.tangent} />
     </group>
   );
 }
@@ -541,25 +629,20 @@ function TrainActor({ train }: { train: TrainSet }) {
 
 function Simulation() {
   const tick = useEditorStore((state) => state.tickTrains);
-  const elapsed = useRef(0);
-
-  useFrame((_, delta) => {
-    elapsed.current += Math.min(delta, 0.05);
-    if (elapsed.current < SIMULATION_STEP_SECONDS) return;
-    tick(elapsed.current);
-    elapsed.current = 0;
-  });
-
+  useFrame((_, delta) => tick(Math.min(delta, 0.05)));
   return null;
 }
 
 function World() {
   const rails = useEditorStore((state) => state.rails);
   const trains = useEditorStore((state) => state.trains);
+  const builder = useEditorStore((state) => state.builder);
   const activeTool = useEditorStore((state) => state.activeRailTool);
   const trainPlacementActive = useEditorStore((state) => state.trainPlacementActive);
+  const trainPreview = useEditorStore((state) => state.trainPreview);
   const preview = useEditorStore((state) => state.preview);
   const updatePreview = useEditorStore((state) => state.updatePreview);
+  const updateTrainPreview = useEditorStore((state) => state.updateTrainPreview);
   const placeRail = useEditorStore((state) => state.placeRail);
   const addTrainFromBuilder = useEditorStore((state) => state.addTrainFromBuilder);
   const select = useEditorStore((state) => state.select);
@@ -578,6 +661,9 @@ function World() {
         }}
         onPointerMove={(event) => {
           if (activeTool) updatePreview([event.point.x, 0, event.point.z]);
+          else if (trainPlacementActive) {
+            updateTrainPreview([event.point.x, 0, event.point.z]);
+          }
         }}
         receiveShadow
         rotation={[-Math.PI / 2, 0, 0]}
@@ -591,6 +677,9 @@ function World() {
       ))}
       {preview && activeTool && <GhostRail preview={preview} />}
       <Suspense fallback={null}>
+        {trainPlacementActive && trainPreview && (
+          <TrainPlacementGhost cars={builder} preview={trainPreview} />
+        )}
         {trains.map((train) => (
           <TrainActor key={train.id} train={train} />
         ))}

@@ -17,6 +17,11 @@ npm run build
 
 The local preview is normally available at `http://127.0.0.1:5173/`.
 
+The public GitHub Pages deployment is available at
+`https://justin759.github.io/plarail-3d/`. Do not refresh, redeploy, or
+otherwise update the public GitHub Pages site for every commit. Only refresh
+the public site when the user explicitly says to do so.
+
 `npm run build` is the required automated validation command. A `lint` script
 exists, but the repository does not yet include an ESLint flat configuration,
 so do not treat `npm run lint` as a passing gate until that configuration is
